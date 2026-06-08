@@ -1,0 +1,664 @@
+#!/usr/bin/env python3
+"""
+goalkeeper - manage project-local Goal Contract state for the Goalkeeper Loop plugin.
+
+This CLI is intentionally dependency-free (Python 3 stdlib only) so it runs the
+same way inside Claude Code, Codex, CI, or a bare shell.
+
+State lives under ./.goalkeeper/ :
+    goal.md          human-readable Goal Contract
+    state.json       structured machine-readable state
+    work_log.md      evidence ledger and parking lot
+    agent_packets.md multi-agent task packets
+    events.jsonl     hook event log
+
+Subcommands:
+    init             scaffold .goalkeeper/ state files (idempotent)
+    status           print a compact status summary
+    set             set a field in state.json (objective, status, etc.)
+    detect           detect the project stack and print suggested validations
+    generate-goal    print a native /goal command derived from the contract
+    checkpoint       mark a checkpoint as met / record evidence
+    score            score the current git diff against the contract
+    log              append a line to work_log.md
+    autocontinue     enable/disable bounded Stop-hook auto-continue
+
+Run `goalkeeper <subcommand> -h` for details.
+"""
+from __future__ import annotations
+
+import argparse
+import datetime as _dt
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+GK_DIR = ".goalkeeper"
+STATE_FILE = "state.json"
+GOAL_FILE = "goal.md"
+LOG_FILE = "work_log.md"
+PACKETS_FILE = "agent_packets.md"
+EVENTS_FILE = "events.jsonl"
+
+SCHEMA_VERSION = 1
+
+
+# --------------------------------------------------------------------------- #
+# Filesystem helpers
+# --------------------------------------------------------------------------- #
+def _root(start: Path | None = None) -> Path:
+    """Find the nearest ancestor containing a .goalkeeper dir, else cwd."""
+    start = (start or Path.cwd()).resolve()
+    for candidate in [start, *start.parents]:
+        if (candidate / GK_DIR).is_dir():
+            return candidate
+    return start
+
+
+def _gk_path(name: str = "") -> Path:
+    base = _root() / GK_DIR
+    return base / name if name else base
+
+
+def _now() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+
+
+def _load_state() -> dict:
+    p = _gk_path(STATE_FILE)
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        _die(f"state.json is not valid JSON: {exc}")
+        return {}  # unreachable
+
+
+def _save_state(state: dict) -> None:
+    p = _gk_path(STATE_FILE)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    state["updated_at"] = _now()
+    p.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+
+
+def _die(msg: str, code: int = 1) -> None:
+    print(f"goalkeeper: error: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def _git(*args: str) -> str:
+    try:
+        out = subprocess.run(
+            ["git", *args],
+            cwd=str(_root()),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return out.stdout
+    except FileNotFoundError:
+        return ""
+
+
+# --------------------------------------------------------------------------- #
+# Language / stack detection (Upgrade #1: language-aware validation presets)
+# --------------------------------------------------------------------------- #
+# Each preset: marker files -> suggested commands.
+PRESETS = [
+    {
+        "name": "node",
+        "markers": ["package.json"],
+        "test": "npm test",
+        "build": "npm run build",
+        "typecheck": "npm run typecheck",
+        "lint": "npm run lint",
+    },
+    {
+        "name": "python",
+        "markers": ["pyproject.toml", "setup.py", "requirements.txt", "tox.ini"],
+        "test": "pytest -q",
+        "build": "python -m build",
+        "typecheck": "mypy .",
+        "lint": "ruff check .",
+    },
+    {
+        "name": "rust",
+        "markers": ["Cargo.toml"],
+        "test": "cargo test",
+        "build": "cargo build",
+        "typecheck": "cargo check",
+        "lint": "cargo clippy -- -D warnings",
+    },
+    {
+        "name": "go",
+        "markers": ["go.mod"],
+        "test": "go test ./...",
+        "build": "go build ./...",
+        "typecheck": "go vet ./...",
+        "lint": "golangci-lint run",
+    },
+    {
+        "name": "java-maven",
+        "markers": ["pom.xml"],
+        "test": "mvn test",
+        "build": "mvn -q package",
+        "typecheck": "mvn -q compile",
+        "lint": "mvn -q checkstyle:check",
+    },
+    {
+        "name": "java-gradle",
+        "markers": ["build.gradle", "build.gradle.kts"],
+        "test": "./gradlew test",
+        "build": "./gradlew build",
+        "typecheck": "./gradlew compileJava",
+        "lint": "./gradlew check",
+    },
+    {
+        "name": "ruby-rails",
+        "markers": ["Gemfile", "config/application.rb"],
+        "test": "bundle exec rspec",
+        "build": "bundle exec rails assets:precompile",
+        "typecheck": "bundle exec srb tc",
+        "lint": "bundle exec rubocop",
+    },
+]
+
+
+def detect_stack(root: Path) -> list[dict]:
+    found = []
+    for preset in PRESETS:
+        if any((root / m).exists() for m in preset["markers"]):
+            found.append(preset)
+    return found
+
+
+def _node_scripts(root: Path) -> dict:
+    pkg = root / "package.json"
+    if not pkg.exists():
+        return {}
+    try:
+        return json.loads(pkg.read_text(encoding="utf-8")).get("scripts", {})
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def suggested_validations(root: Path) -> list[str]:
+    """Return a deduped list of plausible validation commands for this repo."""
+    cmds: list[str] = []
+    stacks = detect_stack(root)
+    node_scripts = _node_scripts(root)
+    for preset in stacks:
+        for key in ("test", "typecheck", "build", "lint"):
+            cmd = preset.get(key)
+            if not cmd:
+                continue
+            # For node, only suggest scripts that actually exist.
+            if preset["name"] == "node":
+                script = cmd.replace("npm run ", "").replace("npm ", "")
+                if script != "test" and script not in node_scripts:
+                    continue
+            if cmd not in cmds:
+                cmds.append(cmd)
+    return cmds
+
+
+# --------------------------------------------------------------------------- #
+# Subcommands
+# --------------------------------------------------------------------------- #
+def cmd_init(args: argparse.Namespace) -> int:
+    base = Path.cwd() / GK_DIR
+    base.mkdir(parents=True, exist_ok=True)
+
+    state_path = base / STATE_FILE
+    if state_path.exists() and not args.force:
+        print(f"{GK_DIR}/ already initialized (use --force to reset state.json).")
+    else:
+        state = {
+            "schema_version": SCHEMA_VERSION,
+            "created_at": _now(),
+            "updated_at": _now(),
+            "status": "draft",  # draft | active | paused | complete | abandoned
+            "objective": args.objective or "",
+            "allowed_paths": [],
+            "forbidden_paths": [],
+            "forbidden_actions": [],
+            "validations": [],
+            "checkpoints": [],  # [{id, desc, evidence, met}]
+            "stop_after_turns": 12,
+            "autocontinue": False,
+            "max_autocontinue_turns": 4,
+            "autocontinue_turns_used": 0,
+            "host": _detect_host(),
+        }
+        (base / STATE_FILE).write_text(
+            json.dumps(state, indent=2) + "\n", encoding="utf-8"
+        )
+
+    _ensure_file(
+        base / GOAL_FILE,
+        _goal_template(args.objective or "<objective>"),
+    )
+    _ensure_file(base / LOG_FILE, _log_template())
+    _ensure_file(base / PACKETS_FILE, _packets_template())
+    _ensure_file(base / EVENTS_FILE, "")
+
+    print(f"Initialized {GK_DIR}/ at {base}")
+    print("Next: edit goal.md / state.json, then run `goalkeeper generate-goal`.")
+    return 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    state = _load_state()
+    if not state:
+        print("No .goalkeeper state found. Run `goalkeeper init` first.")
+        return 1
+    cps = state.get("checkpoints", [])
+    met = sum(1 for c in cps if c.get("met"))
+    print(f"status      : {state.get('status', '?')}")
+    print(f"objective   : {state.get('objective', '') or '(unset)'}")
+    print(f"checkpoints : {met}/{len(cps)} met")
+    print(f"allowed     : {', '.join(state.get('allowed_paths', [])) or '(none)'}")
+    print(f"forbidden   : {', '.join(state.get('forbidden_paths', [])) or '(none)'}")
+    print(f"validations : {', '.join(state.get('validations', [])) or '(none)'}")
+    print(f"stop_after  : {state.get('stop_after_turns', '?')} turns")
+    ac = state.get("autocontinue", False)
+    print(
+        f"autocontinue: {'on' if ac else 'off'} "
+        f"({state.get('autocontinue_turns_used', 0)}/"
+        f"{state.get('max_autocontinue_turns', 0)} used)"
+    )
+    return 0
+
+
+def cmd_set(args: argparse.Namespace) -> int:
+    state = _load_state()
+    if not state:
+        _die("no state.json; run `goalkeeper init` first")
+    list_fields = {
+        "allowed_paths",
+        "forbidden_paths",
+        "forbidden_actions",
+        "validations",
+    }
+    int_fields = {"stop_after_turns", "max_autocontinue_turns"}
+    field = args.field
+    if field in list_fields:
+        state[field] = [v.strip() for v in args.value.split(",") if v.strip()]
+    elif field in int_fields:
+        state[field] = int(args.value)
+    elif field == "autocontinue":
+        state[field] = args.value.lower() in ("1", "true", "yes", "on")
+    else:
+        state[field] = args.value
+    _save_state(state)
+    print(f"set {field} = {state[field]!r}")
+    return 0
+
+
+def cmd_detect(args: argparse.Namespace) -> int:
+    root = _root()
+    stacks = detect_stack(root)
+    if not stacks:
+        print("No known stack markers detected.")
+        return 0
+    print("Detected stack(s): " + ", ".join(s["name"] for s in stacks))
+    print("\nSuggested validation commands:")
+    for cmd in suggested_validations(root):
+        print(f"  - {cmd}")
+    if args.apply:
+        state = _load_state()
+        if state:
+            state["validations"] = suggested_validations(root)
+            _save_state(state)
+            print("\nApplied suggested validations to state.json.")
+    return 0
+
+
+def cmd_generate_goal(args: argparse.Namespace) -> int:
+    state = _load_state()
+    if not state:
+        _die("no state.json; run `goalkeeper init` first")
+    host = args.host or state.get("host") or _detect_host()
+    goal = _build_goal_command(state)
+
+    prefix = "/goal" if host != "codex" else "/goal"
+    print(prefix + " " + goal)
+    return 0
+
+
+def cmd_checkpoint(args: argparse.Namespace) -> int:
+    state = _load_state()
+    if not state:
+        _die("no state.json; run `goalkeeper init` first")
+    cps = state.setdefault("checkpoints", [])
+    if args.add:
+        new_id = f"cp{len(cps) + 1}"
+        cps.append(
+            {"id": new_id, "desc": args.add, "evidence": "", "met": False}
+        )
+        _save_state(state)
+        print(f"added {new_id}: {args.add}")
+        return 0
+    if args.id:
+        target = next((c for c in cps if c["id"] == args.id), None)
+        if not target:
+            _die(f"no checkpoint with id {args.id}")
+        if args.evidence:
+            target["evidence"] = args.evidence
+        if args.met:
+            target["met"] = True
+        _save_state(state)
+        _append(
+            _gk_path(LOG_FILE),
+            f"\n- [{_now()}] checkpoint {args.id} "
+            f"{'MET' if target['met'] else 'updated'}: "
+            f"{target.get('evidence', '')}\n",
+        )
+        print(f"updated {args.id} (met={target['met']})")
+        return 0
+    # default: list
+    for c in cps:
+        mark = "x" if c.get("met") else " "
+        print(f"  [{mark}] {c['id']}: {c['desc']}")
+        if c.get("evidence"):
+            print(f"        evidence: {c['evidence']}")
+    return 0
+
+
+def cmd_score(args: argparse.Namespace) -> int:
+    """Diff-to-contract scoring (Upgrade #2)."""
+    state = _load_state()
+    if not state:
+        _die("no state.json; run `goalkeeper init` first")
+
+    base_ref = args.base
+    changed = _changed_files(base_ref)
+    allowed = state.get("allowed_paths", [])
+    forbidden = state.get("forbidden_paths", [])
+
+    outside = [f for f in changed if allowed and not _matches_any(f, allowed)]
+    forbidden_hits = [f for f in changed if _matches_any(f, forbidden)]
+    cps = state.get("checkpoints", [])
+    no_evidence = [c["id"] for c in cps if not c.get("evidence")]
+    not_met = [c["id"] for c in cps if not c.get("met")]
+
+    report = {
+        "base": base_ref,
+        "changed_files": len(changed),
+        "files_outside_allowed_paths": outside,
+        "forbidden_path_changes": forbidden_hits,
+        "checkpoints_without_evidence": no_evidence,
+        "checkpoints_not_met": not_met,
+    }
+
+    # Simple score: start at 100, subtract penalties.
+    score = 100
+    score -= 25 * bool(forbidden_hits)
+    score -= 15 * bool(outside)
+    score -= min(40, 10 * len(not_met))
+    score -= min(20, 5 * len(no_evidence))
+    score = max(0, score)
+    report["score"] = score
+    report["verdict"] = (
+        "PASS" if score >= 80 and not forbidden_hits and not not_met else "REVIEW"
+    )
+
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print(f"contract score : {score}/100  ->  {report['verdict']}")
+        print(f"changed files  : {report['changed_files']} (vs {base_ref})")
+        _print_list("files outside allowed paths", outside)
+        _print_list("FORBIDDEN path changes", forbidden_hits)
+        _print_list("checkpoints without evidence", no_evidence)
+        _print_list("checkpoints not met", not_met)
+    return 0 if report["verdict"] == "PASS" else 2
+
+
+def cmd_log(args: argparse.Namespace) -> int:
+    _append(_gk_path(LOG_FILE), f"\n- [{_now()}] {args.message}\n")
+    print("logged.")
+    return 0
+
+
+def cmd_autocontinue(args: argparse.Namespace) -> int:
+    state = _load_state()
+    if not state:
+        _die("no state.json; run `goalkeeper init` first")
+    state["autocontinue"] = args.action == "on"
+    if args.max is not None:
+        state["max_autocontinue_turns"] = args.max
+    if args.action == "reset":
+        state["autocontinue_turns_used"] = 0
+    _save_state(state)
+    print(
+        f"autocontinue {'on' if state['autocontinue'] else 'off'}; "
+        f"budget {state.get('max_autocontinue_turns')} turns, "
+        f"{state.get('autocontinue_turns_used', 0)} used"
+    )
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# Goal command builder
+# --------------------------------------------------------------------------- #
+def _build_goal_command(state: dict) -> str:
+    objective = state.get("objective", "").strip() or "<objective>"
+    allowed = state.get("allowed_paths", [])
+    validations = state.get("validations", [])
+    forbidden_actions = state.get("forbidden_actions", [])
+    forbidden_paths = state.get("forbidden_paths", [])
+    stop_after = state.get("stop_after_turns", 12)
+
+    objective_clause = objective.rstrip(".")
+    if allowed:
+        objective_clause += " only in " + ", ".join(allowed)
+    objective_clause += "."
+
+    done_clauses = [f"{v} exits 0" for v in validations]
+    done_clauses.append(".goalkeeper/work_log.md contains evidence for each checkpoint")
+    done = "Done means " + ", and ".join(done_clauses) + "."
+
+    constraints = [_as_prohibition(fa) for fa in forbidden_actions]
+    constraints += [f"do not change {fp}" for fp in forbidden_paths]
+    constraint_str = ""
+    if constraints:
+        constraint_str = " Constraints: " + "; ".join(constraints) + "."
+
+    stop = (
+        f" Pause if credentials or human input are needed, "
+        f"or after {stop_after} turns without all checks passing."
+    )
+
+    return objective_clause + " " + done + constraint_str + stop
+
+
+def _as_prohibition(action: str) -> str:
+    """Render a forbidden action as a 'do not ...' clause idempotently."""
+    a = action.strip().rstrip(".")
+    low = a.lower()
+    if low.startswith(("do not", "don't", "never", "no ", "avoid")):
+        return a
+    return "do not " + a
+
+
+# --------------------------------------------------------------------------- #
+# Templates
+# --------------------------------------------------------------------------- #
+def _goal_template(objective: str) -> str:
+    return f"""# Goal Contract
+
+> The contract is the source of truth. Edit it deliberately; agents read it.
+
+## Objective
+{objective}
+
+## Allowed scope (paths agents may modify)
+- <e.g. src/auth/**>
+
+## Forbidden paths / actions
+- <e.g. do not change public API signatures>
+- <e.g. do not add production dependencies>
+
+## Validation surface (how "done" is proven)
+- <e.g. npm test -- tests/auth exits 0>
+- <e.g. npm run typecheck exits 0>
+
+## Checkpoints (measurable milestones, each needs evidence)
+- [ ] cp1: <milestone> — evidence: <command output / file / link>
+
+## Iteration policy
+- Work turn by turn; record evidence in work_log.md after each checkpoint.
+
+## Stopping condition
+- All validations exit 0 AND every checkpoint has evidence.
+- Pause if credentials/human input are needed, or after N turns without progress.
+"""
+
+
+def _log_template() -> str:
+    return f"""# Work Log (evidence ledger)
+
+Created: {_now()}
+
+## Evidence
+<!-- append: command, exit code, key output, file:line references -->
+
+## Parking lot (out-of-scope ideas; do NOT act on these mid-goal)
+<!-- capture tempting tangents here instead of doing them -->
+"""
+
+
+def _packets_template() -> str:
+    return """# Agent Packets
+
+Generated by `goalkeeper-split`. Each packet is a tightly-scoped unit of work
+with its own allowed paths, so parallel agents never edit the same files.
+
+<!-- packets appended here -->
+"""
+
+
+# --------------------------------------------------------------------------- #
+# Small utilities
+# --------------------------------------------------------------------------- #
+def _ensure_file(path: Path, content: str) -> None:
+    if not path.exists():
+        path.write_text(content, encoding="utf-8")
+
+
+def _append(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def _detect_host() -> str:
+    if os.environ.get("CODEX_HOME") or os.environ.get("CODEX_SANDBOX"):
+        return "codex"
+    if os.environ.get("CLAUDE_PROJECT_DIR") or os.environ.get("CLAUDECODE"):
+        return "claude"
+    return "generic"
+
+
+def _changed_files(base_ref: str) -> list[str]:
+    out = _git("diff", "--name-only", base_ref)
+    files = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    # include untracked + staged that diff might miss
+    out2 = _git("diff", "--name-only", "--cached")
+    for ln in out2.splitlines():
+        if ln.strip() and ln.strip() not in files:
+            files.append(ln.strip())
+    return files
+
+
+def _matches_any(path: str, patterns: list[str]) -> bool:
+    import fnmatch
+
+    for pat in patterns:
+        p = pat.strip()
+        if not p:
+            continue
+        # support trailing ** and bare prefixes
+        if p.endswith("/**"):
+            prefix = p[:-3].rstrip("/")
+            if path == prefix or path.startswith(prefix + "/"):
+                return True
+        if fnmatch.fnmatch(path, p) or path.startswith(p.rstrip("*")):
+            return True
+    return False
+
+
+def _print_list(label: str, items: list[str]) -> None:
+    if items:
+        print(f"  {label}:")
+        for it in items:
+            print(f"    - {it}")
+    else:
+        print(f"  {label}: none")
+
+
+# --------------------------------------------------------------------------- #
+# Argument parsing
+# --------------------------------------------------------------------------- #
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="goalkeeper", description=__doc__)
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    pi = sub.add_parser("init", help="scaffold .goalkeeper state files")
+    pi.add_argument("-o", "--objective", default="", help="objective text")
+    pi.add_argument("--force", action="store_true", help="reset state.json")
+    pi.set_defaults(func=cmd_init)
+
+    ps = sub.add_parser("status", help="print status summary")
+    ps.set_defaults(func=cmd_status)
+
+    pset = sub.add_parser("set", help="set a field in state.json")
+    pset.add_argument("field")
+    pset.add_argument("value")
+    pset.set_defaults(func=cmd_set)
+
+    pd = sub.add_parser("detect", help="detect stack & suggest validations")
+    pd.add_argument("--apply", action="store_true", help="write to state.json")
+    pd.set_defaults(func=cmd_detect)
+
+    pg = sub.add_parser("generate-goal", help="print native /goal command")
+    pg.add_argument("--host", choices=["claude", "codex", "generic"])
+    pg.set_defaults(func=cmd_generate_goal)
+
+    pc = sub.add_parser("checkpoint", help="manage checkpoints")
+    pc.add_argument("--add", help="add a checkpoint with this description")
+    pc.add_argument("--id", help="checkpoint id to update")
+    pc.add_argument("--evidence", help="evidence text for the checkpoint")
+    pc.add_argument("--met", action="store_true", help="mark checkpoint met")
+    pc.set_defaults(func=cmd_checkpoint)
+
+    psc = sub.add_parser("score", help="score git diff against contract")
+    psc.add_argument("--base", default="HEAD", help="git base ref (default HEAD)")
+    psc.add_argument("--json", action="store_true", help="emit JSON")
+    psc.set_defaults(func=cmd_score)
+
+    pl = sub.add_parser("log", help="append a line to work_log.md")
+    pl.add_argument("message")
+    pl.set_defaults(func=cmd_log)
+
+    pa = sub.add_parser("autocontinue", help="toggle bounded Stop auto-continue")
+    pa.add_argument("action", choices=["on", "off", "reset"])
+    pa.add_argument("--max", type=int, help="max auto-continue turns")
+    pa.set_defaults(func=cmd_autocontinue)
+
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
