@@ -20,26 +20,33 @@ in the current diff truly satisfies the contract in `.goalkeeper/`. Assume
 ### 1. Load the contract and score the diff
 ```
 python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" status
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" score --base HEAD --json
+python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" score --json
 ```
 
-The `score` helper computes, mechanically:
+The `score` helper computes, mechanically (diffing against the `base_ref`
+captured when the goal started, and excluding `.goalkeeper/` itself):
 - `files_outside_allowed_paths` — scope drift
 - `forbidden_path_changes` — contract violations
+- `validations_not_run` / `validations_failed` — read from the run ledger
 - `checkpoints_without_evidence`
 - `checkpoints_not_met`
 - a 0–100 score and a PASS/REVIEW verdict.
 
-(If comparing against the pre-work state, pass `--base <ref>`, e.g. the branch
-point or a stashed commit.)
+(To compare against a specific point, pass `--base <ref>`.)
 
-### 2. Run the actual validations
+### 2. Run the actual validations (recorded)
 Do not trust prior turns. Re-run every command in the contract's validation
-surface and capture exit codes and key output:
+surface **through the recorder** so `score` can confirm it actually ran and
+passed:
 
-- each `validations` command (tests, typecheck, build, lint)
-- each targeted check named in `goal.md` (e.g. `rg` assertions that a banned
-  pattern is gone, that a new API is used everywhere it should be)
+```
+python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" run "npm test -- tests/auth"
+python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" run "npm run typecheck"
+```
+
+Also run each targeted check named in `goal.md` (e.g. `rg` assertions that a
+banned pattern is gone, that a new API is used everywhere it should be). Then
+re-run `score` — `validations_not_run` and `validations_failed` should be empty.
 
 ### 3. Inspect for the failure modes
 Read the diff (`git diff`) and check each:

@@ -1,11 +1,13 @@
 {
   "name": "goalkeeper-loop",
-  "version": "0.1.0",
-  "description": "Goal Contract + verifier + ledger + subagent packet system that sits above native /goal, hooks, skills, and subagents. Turns messy requests into measurable, bounded, auditable long-running work.",
-  "author": "Robert Courson",
+  "version": "0.2.0",
+  "description": "Goal Contract + verifier + ledger + subagent packet system that sits above native /goal, hooks, and skills. Turns messy requests into measurable, bounded, auditable long-running work.",
+  "author": {
+    "name": "Robert Courson"
+  },
   "license": "MIT",
   "homepage": "https://github.com/robzilla1738/goalkeeper",
-  "category": "Productivity",
+  "repository": "https://github.com/robzilla1738/goalkeeper",
   "keywords": [
     "goal",
     "loop",
@@ -14,11 +16,11 @@
     "verifier",
     "subagents"
   ],
-  "skills": [
-    "./skills/goalkeeper",
-    "./skills/goalkeeper-audit",
-    "./skills/goalkeeper-split"
-  ],
+  "skills": "./skills/",
   "hooks": "./hooks/hooks.json",
-  "agents": "./codex-agents"
+  "interface": {
+    "displayName": "Goalkeeper Loop",
+    "shortDescription": "Contract-driven layer above /goal: measurable, bounded, auditable agentic work.",
+    "category": "productivity"
+  }
 }

@@ -2,14 +2,17 @@
 #
 # Scoped implementer for a single Goalkeeper packet. Edits only its exclusive
 # allowed paths; stops and reports rather than touching anything else.
+# Codex gates capability via sandbox_mode (no per-agent tools list).
 
 name = "goalkeeper-implementer"
 description = "Scoped implementer for one Goalkeeper packet. Edits only its allowed paths; refuses drive-by changes."
 
-tools = ["read", "search", "edit", "exec"]
-read_only = false
+# workspace-write: may edit the repo. Scope is enforced by the instructions
+# below plus the Goalkeeper hook's forbidden-path blocking.
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
 
-instructions = """
+developer_instructions = """
 You are a scoped implementer executing one packet under an active Goal Contract
 in .goalkeeper/. Read .goalkeeper/goal.md and your packet in
 .goalkeeper/agent_packets.md before doing anything.
@@ -21,8 +24,9 @@ Hard rules:
 - No unrelated cleanup. Capture tangents in the work_log parking lot.
 
 When done:
-1. Run your packet's validation command(s); capture exit codes and key output.
-2. Append evidence to .goalkeeper/work_log.md and mark your checkpoint:
+1. Run your packet's validation command(s) via:
+     python3 ./plugins/goalkeeper-loop/bin/goalkeeper run "<command>"
+2. Mark your checkpoint and append evidence:
      python3 ./plugins/goalkeeper-loop/bin/goalkeeper checkpoint --id <id> --evidence "<...>" --met
 3. Report a concise summary: changes (file:line), validation results, follow-ups.
 

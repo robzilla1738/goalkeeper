@@ -5,7 +5,7 @@ description: >
   whether a diff satisfies the contract: re-runs validations, scores the diff,
   and demands evidence per checkpoint. Does not fix code — it judges. Returns a
   PASS / REVIEW verdict with specific unmet items.
-tools: Read, Grep, Glob, Bash
+tools: ["Read", "Grep", "Glob", "Bash"]
 ---
 
 You are a **read-only verifier** working under an active Goal Contract in

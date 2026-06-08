@@ -42,6 +42,7 @@ GOAL_FILE = "goal.md"
 LOG_FILE = "work_log.md"
 PACKETS_FILE = "agent_packets.md"
 EVENTS_FILE = "events.jsonl"
+RUNS_FILE = "runs.jsonl"
 
 SCHEMA_VERSION = 1
 
@@ -102,6 +103,26 @@ def _git(*args: str) -> str:
         return out.stdout
     except FileNotFoundError:
         return ""
+
+
+def _git_ok(*args: str) -> bool:
+    """Return True if the git command exits 0 (used to probe repo state)."""
+    try:
+        out = subprocess.run(
+            ["git", *args],
+            cwd=str(_root()),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return out.returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+def _git_head() -> str:
+    """Current HEAD sha, or '' if no commits / not a repo."""
+    return _git("rev-parse", "HEAD").strip()
 
 
 # --------------------------------------------------------------------------- #
@@ -223,6 +244,7 @@ def cmd_init(args: argparse.Namespace) -> int:
             "updated_at": _now(),
             "status": "draft",  # draft | active | paused | complete | abandoned
             "objective": args.objective or "",
+            "base_ref": _git_head(),  # diff baseline captured at goal start
             "allowed_paths": [],
             "forbidden_paths": [],
             "forbidden_actions": [],
@@ -294,6 +316,9 @@ def cmd_set(args: argparse.Namespace) -> int:
         state[field] = args.value.lower() in ("1", "true", "yes", "on")
     else:
         state[field] = args.value
+    # Capture the diff baseline the moment a goal becomes active, if not set.
+    if field == "status" and state[field] == "active" and not state.get("base_ref"):
+        state["base_ref"] = _git_head()
     _save_state(state)
     print(f"set {field} = {state[field]!r}")
     return 0
@@ -322,11 +347,8 @@ def cmd_generate_goal(args: argparse.Namespace) -> int:
     state = _load_state()
     if not state:
         _die("no state.json; run `goalkeeper init` first")
-    host = args.host or state.get("host") or _detect_host()
-    goal = _build_goal_command(state)
-
-    prefix = "/goal" if host != "codex" else "/goal"
-    print(prefix + " " + goal)
+    # Both Claude Code and Codex use the same `/goal <condition>` syntax.
+    print("/goal " + _build_goal_command(state))
     return 0
 
 
@@ -375,7 +397,8 @@ def cmd_score(args: argparse.Namespace) -> int:
     if not state:
         _die("no state.json; run `goalkeeper init` first")
 
-    base_ref = args.base
+    # Default to the baseline captured when the goal started; --base overrides.
+    base_ref = args.base or state.get("base_ref") or "HEAD"
     changed = _changed_files(base_ref)
     allowed = state.get("allowed_paths", [])
     forbidden = state.get("forbidden_paths", [])
@@ -386,6 +409,18 @@ def cmd_score(args: argparse.Namespace) -> int:
     no_evidence = [c["id"] for c in cps if not c.get("evidence")]
     not_met = [c["id"] for c in cps if not c.get("met")]
 
+    # Validation surface: did each command actually run (via `goalkeeper run`)
+    # and exit 0? Reads the authoritative runs ledger.
+    runs = _read_runs()
+    validations = state.get("validations", [])
+    not_run, failed = [], []
+    for v in validations:
+        r = _latest_run(v, runs)
+        if r is None:
+            not_run.append(v)
+        elif r.get("exit", 1) != 0:
+            failed.append(v)
+
     report = {
         "base": base_ref,
         "changed_files": len(changed),
@@ -393,6 +428,8 @@ def cmd_score(args: argparse.Namespace) -> int:
         "forbidden_path_changes": forbidden_hits,
         "checkpoints_without_evidence": no_evidence,
         "checkpoints_not_met": not_met,
+        "validations_not_run": not_run,
+        "validations_failed": failed,
     }
 
     # Simple score: start at 100, subtract penalties.
@@ -401,22 +438,191 @@ def cmd_score(args: argparse.Namespace) -> int:
     score -= 15 * bool(outside)
     score -= min(40, 10 * len(not_met))
     score -= min(20, 5 * len(no_evidence))
+    score -= min(20, 10 * len(failed))
+    score -= min(15, 5 * len(not_run))
     score = max(0, score)
     report["score"] = score
     report["verdict"] = (
-        "PASS" if score >= 80 and not forbidden_hits and not not_met else "REVIEW"
+        "PASS"
+        if score >= 80
+        and not forbidden_hits
+        and not not_met
+        and not failed
+        and not not_run
+        else "REVIEW"
     )
 
     if args.json:
         print(json.dumps(report, indent=2))
     else:
         print(f"contract score : {score}/100  ->  {report['verdict']}")
-        print(f"changed files  : {report['changed_files']} (vs {base_ref})")
+        print(f"changed files  : {report['changed_files']} (vs {base_ref[:12]})")
         _print_list("files outside allowed paths", outside)
         _print_list("FORBIDDEN path changes", forbidden_hits)
+        _print_list("validations not run (use `goalkeeper run`)", not_run)
+        _print_list("validations FAILED", failed)
         _print_list("checkpoints without evidence", no_evidence)
         _print_list("checkpoints not met", not_met)
     return 0 if report["verdict"] == "PASS" else 2
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    """Run a validation command, stream output, and record it to runs.jsonl.
+
+    This is the *reliable* mechanism behind the verifier: PostToolUse hooks
+    cannot dependably capture exit codes (and don't fire for non-Bash tools in
+    Codex), so `goalkeeper run "<cmd>"` is the authoritative record that a
+    validation actually executed and what it returned.
+    """
+    cmd = args.command
+    print(f"[goalkeeper] running: {cmd}", file=sys.stderr)
+    proc = subprocess.run(cmd, shell=True, cwd=str(_root()))
+    record = {"cmd": cmd, "exit": proc.returncode, "ts": _now()}
+    _append(_gk_path(RUNS_FILE), json.dumps(record) + "\n")
+    _append(
+        _gk_path(LOG_FILE),
+        f"\n- [{_now()}] ran `{cmd}` -> exit {proc.returncode}\n",
+    )
+    print(
+        f"[goalkeeper] {cmd} -> exit {proc.returncode} (recorded)",
+        file=sys.stderr,
+    )
+    return proc.returncode
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Contract-quality + consistency checks (DSPy-style metrics).
+
+    Scores whether the contract is well-formed: measurable done-state, bounded
+    objective, validations present, boundaries present, stop condition present,
+    and that state.json / goal.md do not obviously disagree.
+    """
+    state = _load_state()
+    if not state:
+        _die("no state.json; run `goalkeeper init` first")
+
+    checks: list[tuple[str, bool, str]] = []
+
+    obj = (state.get("objective") or "").strip()
+    checks.append(("objective set", bool(obj), obj[:60]))
+
+    vague = ("better", "improve", "clean up", "etc", "and so on", "as needed")
+    bounded = bool(obj) and not any(v in obj.lower() for v in vague)
+    checks.append(
+        ("objective is bounded (no vague terms)", bounded, "" if bounded else "contains vague language")
+    )
+
+    vals = state.get("validations", [])
+    checks.append(("validation surface present", bool(vals), f"{len(vals)} command(s)"))
+
+    bounds = bool(state.get("allowed_paths")) or bool(state.get("forbidden_paths"))
+    checks.append(("scope boundaries present", bounds, ""))
+
+    stop = isinstance(state.get("stop_after_turns"), int) and state["stop_after_turns"] > 0
+    checks.append(("stop condition (turn budget) present", stop, str(state.get("stop_after_turns"))))
+
+    cps = state.get("checkpoints", [])
+    checks.append(("at least one checkpoint", bool(cps), f"{len(cps)} checkpoint(s)"))
+
+    # Consistency: goal.md should reference the same objective.
+    goal_md = _gk_path(GOAL_FILE)
+    consistent = True
+    detail = ""
+    if goal_md.exists() and obj:
+        text = goal_md.read_text(encoding="utf-8")
+        if "<objective>" in text or obj.split(".")[0][:30] not in text:
+            consistent = False
+            detail = "goal.md may be out of sync with state.json objective"
+    checks.append(("goal.md consistent with state.json", consistent, detail))
+
+    # base_ref captured so scoring is meaningful.
+    has_base = bool(state.get("base_ref"))
+    checks.append(("diff baseline (base_ref) captured", has_base, state.get("base_ref", "")[:12]))
+
+    passed = sum(1 for _, ok, _ in checks if ok)
+    total = len(checks)
+    pct = round(100 * passed / total)
+
+    if args.json:
+        print(json.dumps(
+            {
+                "contract_quality": pct,
+                "passed": passed,
+                "total": total,
+                "checks": [
+                    {"name": n, "ok": ok, "detail": d} for n, ok, d in checks
+                ],
+            },
+            indent=2,
+        ))
+    else:
+        print(f"contract quality: {pct}% ({passed}/{total} checks)\n")
+        for name, ok, detail in checks:
+            mark = "PASS" if ok else "FAIL"
+            line = f"  [{mark}] {name}"
+            if detail:
+                line += f"  ({detail})"
+            print(line)
+        if pct < 100:
+            print("\nFix the FAIL items before running /goal — an unbounded or")
+            print("unverifiable contract defeats the purpose of Goalkeeper.")
+    return 0 if pct == 100 else 2
+
+
+def cmd_seed(args: argparse.Namespace) -> int:
+    """Project-policy integration: mine repo docs/config to seed the contract."""
+    root = _root()
+    findings: dict[str, list[str]] = {
+        "validations": suggested_validations(root),
+        "policy_files": [],
+        "notes": [],
+    }
+
+    for name in ("AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md"):
+        if (root / name).exists():
+            findings["policy_files"].append(name)
+
+    # CI workflows often encode the real validation surface.
+    wf_dir = root / ".github" / "workflows"
+    if wf_dir.is_dir():
+        wfs = [p.name for p in wf_dir.glob("*.y*ml")]
+        if wfs:
+            findings["notes"].append(
+                f"CI workflows present ({', '.join(wfs)}); align validations with CI."
+            )
+
+    # Common dirs that usually should NOT be edited during a focused goal.
+    suggested_forbidden = [
+        d for d in (".github/**", "node_modules/**", "dist/**", "build/**", "vendor/**")
+        if (root / d.split("/")[0]).exists()
+    ]
+    findings["suggested_forbidden_paths"] = suggested_forbidden
+
+    if args.json:
+        print(json.dumps(findings, indent=2))
+        return 0
+
+    print("Project policy scan:")
+    print("  policy files     : " + (", ".join(findings["policy_files"]) or "(none)"))
+    print("  suggested checks : " + (", ".join(findings["validations"]) or "(none)"))
+    print("  suggest forbid   : " + (", ".join(suggested_forbidden) or "(none)"))
+    for note in findings["notes"]:
+        print(f"  note             : {note}")
+    if findings["policy_files"]:
+        print("\nRead these files into the Goal Contract before generating /goal:")
+        for f in findings["policy_files"]:
+            print(f"  - {f}")
+    if args.apply:
+        state = _load_state()
+        if state:
+            if findings["validations"]:
+                state["validations"] = findings["validations"]
+            if suggested_forbidden:
+                merged = list(dict.fromkeys(state.get("forbidden_paths", []) + suggested_forbidden))
+                state["forbidden_paths"] = merged
+            _save_state(state)
+            print("\nApplied suggested validations + forbidden paths to state.json.")
+    return 0
 
 
 def cmd_log(args: argparse.Namespace) -> int:
@@ -557,6 +763,33 @@ def _append(path: Path, text: str) -> None:
         fh.write(text)
 
 
+def _read_runs() -> list[dict]:
+    """Read the validation-run ledger (.goalkeeper/runs.jsonl)."""
+    p = _gk_path(RUNS_FILE)
+    if not p.exists():
+        return []
+    runs = []
+    for ln in p.read_text(encoding="utf-8").splitlines():
+        ln = ln.strip()
+        if not ln:
+            continue
+        try:
+            runs.append(json.loads(ln))
+        except json.JSONDecodeError:
+            continue
+    return runs
+
+
+def _latest_run(cmd: str, runs: list[dict]) -> dict | None:
+    """Most recent recorded run whose command matches `cmd` (exact or prefix)."""
+    match = None
+    for r in runs:
+        rc = r.get("cmd", "")
+        if rc == cmd or rc.startswith(cmd) or cmd.startswith(rc):
+            match = r  # keep the last (file is append-ordered)
+    return match
+
+
 def _detect_host() -> str:
     if os.environ.get("CODEX_HOME") or os.environ.get("CODEX_SANDBOX"):
         return "codex"
@@ -566,14 +799,35 @@ def _detect_host() -> str:
 
 
 def _changed_files(base_ref: str) -> list[str]:
-    out = _git("diff", "--name-only", base_ref)
-    files = [ln.strip() for ln in out.splitlines() if ln.strip()]
-    # include untracked + staged that diff might miss
-    out2 = _git("diff", "--name-only", "--cached")
-    for ln in out2.splitlines():
-        if ln.strip() and ln.strip() not in files:
-            files.append(ln.strip())
-    return files
+    """Files changed since base_ref, including uncommitted + untracked work.
+
+    Uses a three-dot diff against the merge-base when base_ref is a real commit
+    so unrelated changes on the base branch are not counted, then layers on the
+    working tree via `git status --porcelain`. The plugin's own .goalkeeper/
+    state files are always excluded so they never look like scope drift.
+    """
+    files: set[str] = set()
+
+    # Committed changes since the baseline (if the baseline resolves).
+    if base_ref and _git_ok("rev-parse", "--verify", "--quiet", base_ref):
+        # Prefer three-dot (merge-base) when possible; fall back to two-dot.
+        diff = _git("diff", "--name-only", f"{base_ref}...HEAD")
+        if not diff.strip():
+            diff = _git("diff", "--name-only", base_ref)
+        files.update(ln.strip() for ln in diff.splitlines() if ln.strip())
+
+    # Working tree: staged, unstaged, and untracked.
+    porcelain = _git("status", "--porcelain", "--untracked-files=all")
+    for ln in porcelain.splitlines():
+        # Format: "XY <path>" or "XY <old> -> <new>" for renames.
+        path = ln[3:].strip() if len(ln) > 3 else ln.strip()
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        if path:
+            files.add(path)
+
+    # Never count the plugin's own bookkeeping as project change.
+    return sorted(f for f in files if not f.startswith(GK_DIR + "/") and f != GK_DIR)
 
 
 def _matches_any(path: str, patterns: list[str]) -> bool:
@@ -638,9 +892,26 @@ def build_parser() -> argparse.ArgumentParser:
     pc.set_defaults(func=cmd_checkpoint)
 
     psc = sub.add_parser("score", help="score git diff against contract")
-    psc.add_argument("--base", default="HEAD", help="git base ref (default HEAD)")
+    psc.add_argument(
+        "--base",
+        default=None,
+        help="git base ref (default: base_ref captured at goal start, else HEAD)",
+    )
     psc.add_argument("--json", action="store_true", help="emit JSON")
     psc.set_defaults(func=cmd_score)
+
+    pr = sub.add_parser("run", help="run a validation command and record it")
+    pr.add_argument("command", help="shell command to run (quote it)")
+    pr.set_defaults(func=cmd_run)
+
+    pdoc = sub.add_parser("doctor", help="check contract quality & consistency")
+    pdoc.add_argument("--json", action="store_true", help="emit JSON")
+    pdoc.set_defaults(func=cmd_doctor)
+
+    pseed = sub.add_parser("seed", help="mine repo policy/config to seed contract")
+    pseed.add_argument("--apply", action="store_true", help="write to state.json")
+    pseed.add_argument("--json", action="store_true", help="emit JSON")
+    pseed.set_defaults(func=cmd_seed)
 
     pl = sub.add_parser("log", help="append a line to work_log.md")
     pl.add_argument("message")

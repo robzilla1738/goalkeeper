@@ -39,7 +39,8 @@ It creates project-local state:
   state.json       # structured machine-readable state
   work_log.md      # evidence ledger + parking lot
   agent_packets.md # multi-agent task packets
-  events.jsonl     # hook log
+  events.jsonl     # hook event log
+  runs.jsonl       # recorded validation runs (cmd + exit code)
 ```
 
 ## Contents
@@ -59,6 +60,8 @@ goalkeeper-loop/
     goalkeeper_hook.py          # conservative cross-host hook
   agents/                       # Claude Code plugin agents
   codex-agents/                 # Codex custom-agent TOML examples for .codex/agents/
+  examples/marketplace.json     # local Codex marketplace config
+  tests/                        # pytest suite (CLI + hook, run via `pytest -q`)
   README.md
 ```
 
@@ -113,22 +116,37 @@ Dependency-free (Python 3 stdlib). Same behavior in Claude Code, Codex, CI, or a
 bare shell.
 
 ```
-goalkeeper init [-o OBJECTIVE] [--force]   # scaffold .goalkeeper/
+goalkeeper init [-o OBJECTIVE] [--force]   # scaffold .goalkeeper/, capture diff baseline
 goalkeeper status                          # compact summary
 goalkeeper set FIELD VALUE                 # objective, allowed_paths, validations, ...
 goalkeeper detect [--apply]                # detect stack, suggest validations
-goalkeeper generate-goal [--host ...]      # print a native /goal command
+goalkeeper seed [--apply] [--json]         # mine AGENTS.md/CLAUDE.md/CI to seed contract
+goalkeeper doctor [--json]                 # contract-quality + consistency check
+goalkeeper generate-goal                   # print a native /goal command
 goalkeeper checkpoint [--add | --id --evidence --met]
+goalkeeper run "CMD"                        # run a validation and RECORD it (exit code)
 goalkeeper score [--base REF] [--json]     # score the diff against the contract
 goalkeeper log MESSAGE                      # append to work_log.md
 goalkeeper autocontinue on|off|reset [--max N]
 ```
 
-`detect` knows Node, Python, Rust, Go, Java (Maven/Gradle), and Rails, and only
-suggests Node scripts that actually exist in `package.json`.
-
-`score` reports files changed outside allowed paths, forbidden-path changes,
-checkpoints without evidence / not met, and an overall PASS/REVIEW verdict.
+- **`detect`** knows Node, Python, Rust, Go, Java (Maven/Gradle), and Rails, and
+  only suggests Node scripts that actually exist in `package.json`.
+- **`seed`** reads `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, CI workflows, and
+  common build/output dirs to propose validations and forbidden paths.
+- **`doctor`** scores the contract (DSPy-style metrics): measurable done-state,
+  bounded objective, validations present, boundaries present, stop condition
+  present, and `goal.md` ⇄ `state.json` consistency. Exits non-zero if any fail.
+- **`run`** is the *authoritative* validation recorder. PostToolUse hooks can't
+  reliably capture exit codes (and don't fire for non-Bash tools in Codex), so
+  running validations through `goalkeeper run` writes `.goalkeeper/runs.jsonl`,
+  which `score` and the audit read to confirm each validation actually ran and
+  exited 0.
+- **`score`** diffs against the `base_ref` captured when the goal started
+  (three-dot merge-base, excluding `.goalkeeper/` itself and including untracked
+  files), and reports: files outside allowed paths, forbidden-path changes,
+  validations not run / failed, checkpoints without evidence / not met, and an
+  overall PASS/REVIEW verdict.
 
 ## Install — Claude Code (local testing)
 
@@ -136,13 +154,15 @@ checkpoints without evidence / not met, and an overall PASS/REVIEW verdict.
 claude --plugin-dir ./goalkeeper-loop
 ```
 
-Then:
+Plugin skills are **namespaced by plugin name**, so invoke it as:
 
 ```
-/goalkeeper Refactor the auth module to the new token API while preserving behavior and passing tests.
+/goalkeeper-loop:goalkeeper Refactor the auth module to the new token API while preserving behavior and passing tests.
 ```
 
-`/goal` requires Claude Code **v2.1.139+**.
+(The model can also auto-invoke the skill from its description; the namespaced
+slash form is the explicit way to call it. To get a shorter command, rename the
+plugin's `name` in both manifests.) `/goal` requires Claude Code **v2.1.139+**.
 
 ## Install — Codex (local marketplace testing)
 
@@ -169,7 +189,8 @@ Create `.agents/plugins/marketplace.json`:
 }
 ```
 
-Restart Codex, install from the local marketplace, then invoke:
+Restart Codex, install from the local marketplace, then invoke the skill by
+typing `$` in the composer and picking it (or):
 
 ```
 $goalkeeper Refactor the auth module to the new token API while preserving behavior and passing tests.
@@ -180,6 +201,22 @@ Enable goals if needed:
 ```
 codex features enable goals
 ```
+
+### Codex caveats (verified, real-world)
+
+- **Hook schema is compatible.** Codex models its hooks on Claude Code: same
+  `hooks.json` shape, same stdin/stdout JSON, and it aliases `CLAUDE_PLUGIN_ROOT`
+  — so the single shared hook script works in both.
+- **Plugin-bundled hooks can be flaky in Codex** (known loading issue). If the
+  hook doesn't fire, also register `hooks/hooks.json` at the user layer
+  (`~/.codex/hooks.json`) and inspect with `/hooks`.
+- **Codex hooks fire reliably for `Bash`, not for `apply_patch`/MCP edits**, so
+  path-edit guarding is best-effort there — rely on `goalkeeper-audit`.
+- **No `/loop` in the Codex CLI.** Use `/goal` for long-horizon autonomy;
+  interval scheduling is a Codex *app* automation feature, not CLI.
+- **Codex custom agents are not bundled by the manifest.** Copy the examples
+  from `codex-agents/` into `.codex/agents/`. Codex gates capability via
+  `sandbox_mode` (`read-only` / `workspace-write`), not a per-agent tools list.
 
 ## Best-practice workflow
 
@@ -207,23 +244,29 @@ That is the core: **objective, scope, proof, constraints, and stop budget.**
 
 ## Roadmap
 
-1. **Language-aware validation presets** — implemented in `goalkeeper detect`
-   (Node/Python/Rust/Go/Java/Rails); extend coverage.
-2. **Diff-to-contract scoring** — implemented in `goalkeeper score`; add
-   "validation commands not run" detection via the events log.
-3. **Agent packet executor helpers** — generate exact Codex/Claude prompts per
-   packet (researcher/implementer/verifier).
-4. **Project policy integration** — read `AGENTS.md`, `CLAUDE.md`, package
-   scripts, CI config to auto-improve the contract.
-5. **A small eval suite** — DSPy-style metrics for contract quality (measurable
-   done state, bounded objective, validation present, boundaries present, stop
-   condition present).
+1. ✅ **Language-aware validation presets** — `goalkeeper detect`
+   (Node/Python/Rust/Go/Java/Rails). *Extend coverage.*
+2. ✅ **Diff-to-contract scoring** — `goalkeeper score`, with baseline capture
+   and "validations not run / failed" via the run ledger.
+3. **Agent packet executor helpers** — `goalkeeper-split` emits per-packet
+   prompts; a one-shot executor that launches them is still TODO.
+4. ✅ **Project policy integration** — `goalkeeper seed` reads
+   `AGENTS.md`/`CLAUDE.md`/CI to seed the contract. *Deepen parsing.*
+5. ✅ **Contract-quality eval** — `goalkeeper doctor` (DSPy-style metrics).
+   *Grow into a fixture-based eval set.*
 
-## Status
+## Status & testing
 
-Python helpers and hook behavior are syntax/smoke-tested. Test the plugin inside
-live Codex or Claude Code in a disposable repo before using it on production
-work.
+A `pytest` suite (`tests/`) covers the CLI helpers, scoring, the run ledger,
+`doctor`, and the hook end-to-end (32 tests); CI runs it on Python 3.9–3.12.
+
+```
+cd goalkeeper-loop && pip install pytest && pytest -q
+```
+
+Still: test the plugin inside **live** Codex or Claude Code in a disposable repo
+before production use — the hosts' hook loading and skill invocation are
+environment-specific (see Codex caveats above).
 
 ## License
 
