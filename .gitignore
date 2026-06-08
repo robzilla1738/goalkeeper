@@ -1,0 +1,6 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Goalkeeper project-local state (created at runtime in target repos)
+.goalkeeper/

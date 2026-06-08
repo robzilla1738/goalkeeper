@@ -1,0 +1,28 @@
+{
+  "name": "goalkeeper-loop",
+  "version": "0.1.0",
+  "description": "Goal Contract + verifier + ledger + subagent packet system that sits above native /goal, /loop, hooks, skills, and subagents. Turns messy requests into measurable, bounded, auditable long-running work.",
+  "author": {
+    "name": "Robert Courson"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/robzilla1738/goalkeeper",
+  "repository": "https://github.com/robzilla1738/goalkeeper",
+  "keywords": [
+    "goal",
+    "loop",
+    "agentic",
+    "contract",
+    "verifier",
+    "subagents",
+    "refactor",
+    "migration"
+  ],
+  "skills": [
+    "./skills/goalkeeper",
+    "./skills/goalkeeper-audit",
+    "./skills/goalkeeper-split"
+  ],
+  "agents": "./agents",
+  "hooks": "./hooks/hooks.json"
+}
