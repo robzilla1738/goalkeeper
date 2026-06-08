@@ -881,7 +881,6 @@ def build_parser() -> argparse.ArgumentParser:
     pd.set_defaults(func=cmd_detect)
 
     pg = sub.add_parser("generate-goal", help="print native /goal command")
-    pg.add_argument("--host", choices=["claude", "codex", "generic"])
     pg.set_defaults(func=cmd_generate_goal)
 
     pc = sub.add_parser("checkpoint", help="manage checkpoints")
