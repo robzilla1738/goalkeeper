@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.0 — Local-agent hardening — 2026-06-08
+
+- `gate` now enforces shared contract-quality checks, so draft, vague,
+  unscoped, checkpoint-free, validator-free, or strict-invalid contracts cannot
+  pass by skipping `doctor`.
+- `doctor` and `gate` now use the same contract-quality source of truth.
+- `goalkeeper run` now streams command output while saving bounded stdout/stderr
+  proof artifacts under `.goalkeeper/artifacts/runs/`; `runs.jsonl` records
+  duration, artifact paths, truncation flags, and output limits.
+- Command validators now match exact recorded commands by default. Prefix
+  matching requires `params.allow_prefix_match: true`.
+- Proof bundles now include validator detail metadata and run artifact links.
+- Codex host instructions no longer depend on `CLAUDE_PLUGIN_ROOT`; copied Claude
+  and Codex host entrypoints are smoke-tested with `GOALKEEPER_CORE_HOME`.
+- Added `init --auto` and `adopt` so useful contracts can be generated from repo
+  facts or current diffs without hand-authoring JSON. Auto contracts fall back
+  to `git diff --check` when no stack-specific validator is detected.
+- Added symlink-based `install` / `uninstall`, `host doctor`, and isolated
+  `smoke` checks for local shell, Claude, and Codex workflows.
+- `uninstall` now removes only Goalkeeper-owned symlinks, never source checkout
+  paths or unrelated directories.
+- `adopt --force` clears goal-specific runtime evidence so validation runs from
+  an old contract cannot satisfy a new adopted contract.
+- Malformed contracts now return `INCOMPLETE` with contract-quality blockers
+  instead of crashing downstream gate evaluation.
+
 ## 0.3.0 — Evidence-first control plane (Core + adapters + hosts)
 
 A major evolution from "loop plugin" to a domain-neutral contract and proof engine.

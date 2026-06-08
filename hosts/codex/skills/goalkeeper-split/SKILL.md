@@ -17,6 +17,9 @@ You convert one Goal Contract into a small set of **tightly-scoped packets** who
 
 Subagents are useful but costly. Only split when it pays off.
 
+Use `${GOALKEEPER_BIN:-goalkeeper}`; set `GOALKEEPER_BIN` to the absolute
+Goalkeeper entrypoint if the CLI is not on `PATH`.
+
 ## When NOT to split
 - The work is sequential or small.
 - Packets would share editable files.
@@ -26,8 +29,8 @@ Subagents are useful but costly. Only split when it pays off.
 
 ### 1. Partition scope into disjoint packets
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" split --write-packets
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" packets list
+${GOALKEEPER_BIN:-goalkeeper} split --write-packets
+${GOALKEEPER_BIN:-goalkeeper} packets list
 ```
 
 `split` carves `scope.allowed_resources` into one implementer packet per resource
@@ -40,7 +43,7 @@ Classify additional packets by hand if useful: **researcher** (read-only),
 
 ### 2. Run packets
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" packets run P1
+${GOALKEEPER_BIN:-goalkeeper} packets run P1
 ```
 Launch a Claude Code subagent/Task (or a Codex custom agent from
 `hosts/codex/codex-agents/`) with the packet's prompt. Run researchers first if
@@ -48,7 +51,7 @@ implementers depend on their findings; run disjoint implementers in parallel.
 
 ### 3. Reconcile + audit
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" packets reconcile
+${GOALKEEPER_BIN:-goalkeeper} packets reconcile
 ```
 `reconcile` checks the combined diff honored the disjoint write-sets and flags any
 changed file not owned by a packet. Then run **goalkeeper-audit** and `goalkeeper

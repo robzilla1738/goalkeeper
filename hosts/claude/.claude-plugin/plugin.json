@@ -1,7 +1,7 @@
 {
   "name": "goalkeeper",
-  "version": "0.3.0",
-  "description": "Evidence-first control plane for agentic work: a Universal Goal Contract (v2), validator registry, verifier tiers, completion gate, proof bundles, risk/approval gates, and subagent packets above native /goal, hooks, skills, and subagents. Don't let agents claim done — make them prove it.",
+  "version": "0.4.0",
+  "description": "Evidence-first control plane for agentic work: a Universal Goal Contract (v2), validator registry, verifier tiers, completion gate, proof bundles, auto contracts, host smoke checks, risk/approval gates, and subagent packets above native /goal, hooks, skills, and subagents. Don't let agents claim done — make them prove it.",
   "author": {
     "name": "Robert Courson"
   },

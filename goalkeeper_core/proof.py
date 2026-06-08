@@ -23,6 +23,7 @@ def build_bundle(state: dict, root: Path) -> dict:
                 "available": r.available,
                 "tier": r.tier,
                 "evidence": r.evidence,
+                "detail": r.detail,
             }
         )
     return {
@@ -59,6 +60,8 @@ def write_bundle(state: dict, root: Path, fmt: str = "both") -> dict:
 
 
 def render_md(b: dict) -> str:
+    allowed = b["scope"].get("allowed_resources", [])
+    forbidden = b["scope"].get("forbidden_resources", [])
     lines = [
         "# Goalkeeper Proof Bundle",
         "",
@@ -68,8 +71,8 @@ def render_md(b: dict) -> str:
         b.get("objective") or "(unset)",
         "",
         "## Scope",
-        "- allowed: " + ", ".join(b["scope"].get("allowed_resources", [])) or "- allowed: (none)",
-        "- forbidden: " + ", ".join(b["scope"].get("forbidden_resources", [])) or "- forbidden: (none)",
+        "- allowed: " + (", ".join(allowed) if allowed else "(none)"),
+        "- forbidden: " + (", ".join(forbidden) if forbidden else "(none)"),
         "",
         "## Changed files",
     ]
@@ -78,7 +81,16 @@ def render_md(b: dict) -> str:
     for v in b["validations"]:
         mark = {True: "PASS", False: "FAIL", None: "N/A"}[v["passed"]]
         req = "required" if v["required"] else "optional"
-        lines.append(f"- [{mark}] {v['id']} ({v['type']}, {req}): {v['evidence']}")
+        run = (v.get("detail") or {}).get("run") or {}
+        artifacts = []
+        if run.get("stdout_artifact"):
+            artifacts.append(f"stdout: {run['stdout_artifact']}")
+        if run.get("stderr_artifact"):
+            artifacts.append(f"stderr: {run['stderr_artifact']}")
+        if run.get("stdout_truncated") or run.get("stderr_truncated"):
+            artifacts.append("output truncated")
+        suffix = f" ({'; '.join(artifacts)})" if artifacts else ""
+        lines.append(f"- [{mark}] {v['id']} ({v['type']}, {req}): {v['evidence']}{suffix}")
     lines += ["", "## Checkpoints"]
     for c in b["checkpoints"]:
         lines.append(f"- [{c['status']}] {c['id']}: {c['description']} — evidence: {c['evidence'] or '(none)'}")

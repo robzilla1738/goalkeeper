@@ -29,13 +29,14 @@ Contract → Work → Evidence → Verification → Audit → Accept / Review
 ```
 
 ```
-  goalkeeper init --template …    (capture base_ref, scaffold v2 state)
+  goalkeeper init --auto …        (capture base_ref, detect validators/scope)
+  goalkeeper adopt …              (alternative: scope a contract around current diff)
   goalkeeper set / checkpoint …   (shape scope, validators, risk, loop)
   goalkeeper doctor               (GATE: reject vague/invalid contracts)
   goalkeeper render --format prompt → /goal …      (hand to the host loop)
         │  host loops the agent; the hook injects the contract + blocks bad cmds
         ▼
-  goalkeeper run "<validation>"   (records exit codes to runs.jsonl)
+  goalkeeper run "<validation>"   (records exit/duration + bounded output artifacts)
   goalkeeper checkpoint --met …   (records evidence)
   goalkeeper approve … --by …     (records human/risk approvals)
         ▼
@@ -51,16 +52,23 @@ Contract → Work → Evidence → Verification → Audit → Accept / Review
 | `state.json` | CLI | CLI, hook | **Canonical** Universal Goal Contract v2 + runtime bookkeeping |
 | `goal.md` | CLI (`render`) | humans, agent | **Generated** view of the contract — never hand-edited (kills drift) |
 | `work_log.md` | CLI (`log`/`run`/`checkpoint`) | humans, agent | Evidence ledger + parking lot |
-| `runs.jsonl` | CLI (`run`) | CLI (gate/score) | Authoritative record of validation command + exit code |
+| `runs.jsonl` | CLI (`run`) | CLI (gate/score) | Authoritative validation command ledger: command, exit, duration, artifact refs |
 | `events.jsonl` | hook | humans | Append-only hook event log |
 | `agent_packets.md` | CLI (`split`) | humans, subagents | Per-packet scoped prompts |
 | `proof.md` / `proof.json` | CLI (`proof`/`complete`) | humans, CI | Shareable audit bundle |
-| `artifacts/` | CLI (`proof`) | humans | Captured artifacts referenced by the proof |
+| `artifacts/` | CLI (`run`/`proof`) | humans | Captured stdout/stderr and other artifacts referenced by the proof |
 
 ## What changed from v1 (and why)
 
 - **Verification now blocks completion.** `gate` is the single arbiter; `complete`
   is the only writer of `status=complete` and only succeeds after `gate` passes.
+- **Contract quality is part of the gate.** An empty, draft, unscoped, or
+  validator-free contract cannot pass by skipping `doctor`.
+- **Useful contracts can be bootstrapped from reality.** `init --auto` detects
+  package-manager test commands, Python/Rust/Go validators, likely scope, and a
+  safe fallback validator; `adopt` scopes around the current git diff.
+- **Local host readiness is testable.** `install`, `host doctor`, and `smoke`
+  expose shell/Claude/Codex wiring problems before relying on a long agent run.
 - **state.json is canonical; goal.md is rendered** — the v1 drift is gone.
 - **The contract is domain-neutral.** Code is the first wedge; research/writing/ops
   are adapters.
@@ -78,3 +86,6 @@ Contract → Work → Evidence → Verification → Audit → Accept / Review
   manually-supplied evidence rather than importing third-party drivers.
 - **Parallel packets are experimental.** `packets reconcile` is the safety net for
   overlapping write-sets, not a lock.
+- **Live host behavior still needs real-session proof.** Isolated hook execution is
+  covered by smoke tests, but skill invocation and Stop-hook continuation can still
+  vary by Claude/Codex host version.

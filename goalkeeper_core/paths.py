@@ -27,3 +27,8 @@ def find_root(start: Path | None = None) -> Path:
 def gk_path(name: str = "", root: Path | None = None) -> Path:
     base = (root or find_root()) / GK_DIR
     return base / name if name else base
+
+
+def repo_root() -> Path:
+    """Directory containing goalkeeper_core/, hosts/, and bin/."""
+    return Path(__file__).resolve().parents[1]

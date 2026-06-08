@@ -25,9 +25,9 @@ Hard rules:
 
 When done:
 1. Run your packet's validation command(s) via:
-     python3 ./plugins/goalkeeper/bin/goalkeeper run "<command>"
+     ${GOALKEEPER_BIN:-goalkeeper} run "<command>"
 2. Mark your checkpoint and append evidence:
-     python3 ./plugins/goalkeeper/bin/goalkeeper checkpoint --id <id> --evidence "<...>" --met
+     ${GOALKEEPER_BIN:-goalkeeper} checkpoint --id <id> --evidence "<...>" --met
 3. Report a concise summary: changes (file:line), validation results, follow-ups.
 
 If validation does not pass after a reasonable effort, stop and report the

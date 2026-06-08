@@ -6,22 +6,28 @@ from .clock import now
 
 def find_approval(approvals: list[dict], what: str) -> dict | None:
     for a in approvals or []:
+        if not isinstance(a, dict):
+            continue
         if a.get("what") == what:
             return a
     return None
 
 
 def has_human_acceptance(state: dict) -> bool:
-    if state.get("completion", {}).get("accepted_by"):
+    completion = state.get("completion", {})
+    if isinstance(completion, dict) and completion.get("accepted_by"):
         return True
-    return bool(state.get("approvals"))
+    approvals = state.get("approvals", [])
+    return bool(approvals if isinstance(approvals, list) else [])
 
 
 def risk_blockers(state: dict) -> list[tuple[str, str]]:
     """Approval/risk gate blockers as (code, detail) tuples."""
     out: list[tuple[str, str]] = []
-    risk = state.get("risk", {}) or {}
-    approvals = state.get("approvals", [])
+    raw_risk = state.get("risk", {}) or {}
+    risk = raw_risk if isinstance(raw_risk, dict) else {}
+    raw_approvals = state.get("approvals", [])
+    approvals = raw_approvals if isinstance(raw_approvals, list) else []
     lvl = risk.get("level", "low")
 
     if lvl in ("high", "critical") and not has_human_acceptance(state):

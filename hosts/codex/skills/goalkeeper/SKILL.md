@@ -32,20 +32,24 @@ not claimed.
 
 ## Workflow
 
+Use the installed `goalkeeper` CLI. If it is not on `PATH`, set
+`GOALKEEPER_BIN=/absolute/path/to/goalkeeper/bin/goalkeeper` before running the
+commands below.
+
 ### 1. Pick a domain + template
 Choose the domain that fits (`code`, `research`, `writing`, `ops`) and the closest
 template:
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" init --template code-refactor -o "<objective>"
+${GOALKEEPER_BIN:-goalkeeper} init --template code-refactor -o "<objective>"
 ```
 
 Templates: `code-refactor, bugfix, research, writing, recurring-maintenance,
 data-quality, incident-review`. For code, also mine the repo:
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" detect
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" seed
+${GOALKEEPER_BIN:-goalkeeper} detect
+${GOALKEEPER_BIN:-goalkeeper} seed
 ```
 
 Read any listed policy files (AGENTS.md/CLAUDE.md/CONTRIBUTING.md) and fold their
@@ -53,12 +57,12 @@ rules in.
 
 ### 2. Shape the contract (dotted-path `set`)
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" set scope.allowed_resources "src/auth/**,tests/auth/**"
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" set scope.forbidden_resources ".github/**,package-lock.json"
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" set scope.forbidden_actions "change public behavior,add production dependencies"
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" set risk.level medium
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" detect --apply        # writes command validators
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" checkpoint --add "Auth routes use the new token API"
+${GOALKEEPER_BIN:-goalkeeper} set scope.allowed_resources "src/auth/**,tests/auth/**"
+${GOALKEEPER_BIN:-goalkeeper} set scope.forbidden_resources ".github/**,package-lock.json"
+${GOALKEEPER_BIN:-goalkeeper} set scope.forbidden_actions "change public behavior,add production dependencies"
+${GOALKEEPER_BIN:-goalkeeper} set risk.level medium
+${GOALKEEPER_BIN:-goalkeeper} detect --apply        # writes command validators
+${GOALKEEPER_BIN:-goalkeeper} checkpoint --add "Auth routes use the new token API"
 ```
 
 Add typed validators beyond shell commands where they help (`git_diff` for scope,
@@ -68,10 +72,10 @@ high-risk work). For high/critical risk or external side effects, set
 
 ### 3. Gate the contract, then emit /goal
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" validate-contract --strict
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" doctor
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" set completion.status active
-python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" render --format prompt
+${GOALKEEPER_BIN:-goalkeeper} validate-contract --strict
+${GOALKEEPER_BIN:-goalkeeper} doctor
+${GOALKEEPER_BIN:-goalkeeper} set completion.status active
+${GOALKEEPER_BIN:-goalkeeper} render --format prompt
 ```
 
 Show the generated `/goal` to the user. `goal.md` is generated — never hand-edit it.
