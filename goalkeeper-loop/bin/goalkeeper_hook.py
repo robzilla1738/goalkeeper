@@ -205,16 +205,15 @@ def _destructive_reason(cmd: str) -> str:
 
 
 def _forbidden_reason(cmd: str, state: dict) -> str:
+    # Path-based blocking only. We deliberately do NOT try to infer "forbidden
+    # actions" from free-text keywords — that produced false positives (any
+    # command containing a common word got blocked) and false negatives.
+    # Forbidden *actions* are enforced by goalkeeper-audit reading the diff,
+    # not by guessing intent from a shell string.
     for fp in state.get("forbidden_paths", []):
         token = fp.strip().rstrip("/*").rstrip("/")
         if token and token in cmd:
             return f"command references forbidden path: {fp}"
-    for fa in state.get("forbidden_actions", []):
-        # match on a distinctive keyword from the forbidden action phrase
-        kw = fa.strip().split()
-        kw = [w for w in kw if len(w) > 3][:1]
-        if kw and kw[0].lower() in cmd.lower():
-            return f"command may perform a forbidden action: {fa}"
     return ""
 
 
@@ -253,8 +252,19 @@ def _emit_deny(event: str, reason: str) -> None:
 
 
 def _emit_continue(reason: str) -> None:
-    # For Stop hooks, decision=block tells the host to keep going.
-    _emit({"decision": "block", "reason": reason})
+    # For Stop hooks, decision=block tells the host to keep going. The `reason`
+    # field is ignored by the model, so the actual guidance must be surfaced via
+    # hookSpecificOutput.additionalContext. We emit both for safety/portability.
+    _emit(
+        {
+            "decision": "block",
+            "reason": reason,
+            "hookSpecificOutput": {
+                "hookEventName": "Stop",
+                "additionalContext": reason,
+            },
+        }
+    )
 
 
 # --------------------------------------------------------------------------- #

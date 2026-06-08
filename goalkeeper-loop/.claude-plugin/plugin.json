@@ -1,6 +1,6 @@
 {
   "name": "goalkeeper-loop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Goal Contract + verifier + ledger + subagent packet system that sits above native /goal, /loop, hooks, skills, and subagents. Turns messy requests into measurable, bounded, auditable long-running work.",
   "author": {
     "name": "Robert Courson"
@@ -23,6 +23,10 @@
     "./skills/goalkeeper-audit",
     "./skills/goalkeeper-split"
   ],
-  "agents": "./agents",
+  "agents": [
+    "./agents/goalkeeper-researcher.md",
+    "./agents/goalkeeper-implementer.md",
+    "./agents/goalkeeper-verifier.md"
+  ],
   "hooks": "./hooks/hooks.json"
 }

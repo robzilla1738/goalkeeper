@@ -5,7 +5,7 @@ description: >
   exploration — mapping call sites, tracing data flow, inventorying usages —
   where you want the conclusion, not a file dump in the main context. Never
   edits files. Returns a concise findings summary.
-tools: Read, Grep, Glob, Bash
+tools: ["Read", "Grep", "Glob", "Bash"]
 ---
 
 You are a **read-only researcher** working under an active Goal Contract in

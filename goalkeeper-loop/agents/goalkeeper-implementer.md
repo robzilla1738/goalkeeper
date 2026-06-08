@@ -4,7 +4,7 @@ description: >
   Scoped implementer for a single Goalkeeper packet. Use to make changes inside
   an exclusive set of allowed paths defined by an agent packet, without touching
   anything else. Stops and reports rather than editing outside its scope.
-tools: Read, Edit, Write, Grep, Glob, Bash
+tools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash"]
 ---
 
 You are a **scoped implementer** executing one packet under an active Goal

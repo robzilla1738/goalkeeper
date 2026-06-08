@@ -16,6 +16,16 @@ You are setting up a **contract, don't vibe** workflow. The deliverable of this
 skill is a precise, bounded Goal Contract plus a ready-to-run native `/goal`
 command. You are NOT yet doing the implementation work.
 
+## The request
+
+The user's request is:
+
+> $ARGUMENTS
+
+If that is empty, ask the user for the objective before proceeding. Treat the
+request as a *messy draft* to be turned into a measurable contract — do not act
+on it literally yet.
+
 ## Principle
 
 Do not build a raw infinite loop. Both Claude Code and Codex have first-party
@@ -27,16 +37,18 @@ and stopping condition** before any agent runs. Every objective must be
 ## Workflow
 
 ### 1. Detect the stack and existing policy
-Run the helper to detect the project's language(s) and suggested validations,
-and read any repo policy files so the contract reflects reality:
+Mine the repo for its real validation surface and policy so the contract
+reflects reality, not guesses:
 
 ```
 python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" detect
+python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" seed
 ```
 
-Also read, if present: `AGENTS.md`, `CLAUDE.md`, `package.json` scripts, CI
-config (`.github/workflows/*`), and `CONTRIBUTING.md`. Use these to choose
-real test/build/typecheck commands rather than guessing.
+`seed` reports detected validations, policy files (`AGENTS.md`, `CLAUDE.md`,
+`CONTRIBUTING.md`), CI workflows, and commonly-forbidden paths. **Read the
+listed policy files** and fold their rules into the contract — they often encode
+the project's true constraints and test commands.
 
 ### 2. Interview the request into a contract
 From the user's request, derive each field. If a field is genuinely ambiguous
@@ -68,7 +80,16 @@ python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" set status active
 Then open `.goalkeeper/goal.md` and flesh out the human-readable contract so a
 fresh agent could pick it up cold.
 
-### 4. Generate the native /goal command
+### 4. Sanity-check the contract, then generate the native /goal command
+Before handing off, verify the contract is actually well-formed (bounded
+objective, validations present, boundaries present, stop condition present):
+
+```
+python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" doctor
+```
+
+Fix any FAIL items, then generate the command:
+
 ```
 python3 "${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper" generate-goal
 ```

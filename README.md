@@ -19,8 +19,11 @@ The plugin lives in [`goalkeeper-loop/`](./goalkeeper-loop). See
 
 ```
 claude --plugin-dir ./goalkeeper-loop
-/goalkeeper Refactor the auth module to the new token API while preserving behavior and passing tests.
+/goalkeeper-loop:goalkeeper Refactor the auth module to the new token API while preserving behavior and passing tests.
 ```
+
+(Plugin skills are namespaced as `/<plugin>:<skill>`. The model can also
+auto-invoke from the skill description.)
 
 **Codex (local marketplace):**
 
