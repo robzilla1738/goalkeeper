@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper_hook.py\""
+            "command": "python3 \"${GOALKEEPER_HOOK:-${CLAUDE_PLUGIN_ROOT:-${GOALKEEPER_CORE_HOME:-.}}/bin/goalkeeper_hook.py}\""
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper_hook.py\""
+            "command": "python3 \"${GOALKEEPER_HOOK:-${CLAUDE_PLUGIN_ROOT:-${GOALKEEPER_CORE_HOME:-.}}/bin/goalkeeper_hook.py}\""
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper_hook.py\""
+            "command": "python3 \"${GOALKEEPER_HOOK:-${CLAUDE_PLUGIN_ROOT:-${GOALKEEPER_CORE_HOME:-.}}/bin/goalkeeper_hook.py}\""
           }
         ]
       }
@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper_hook.py\""
+            "command": "python3 \"${GOALKEEPER_HOOK:-${CLAUDE_PLUGIN_ROOT:-${GOALKEEPER_CORE_HOME:-.}}/bin/goalkeeper_hook.py}\""
           }
         ]
       }
@@ -46,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper_hook.py\""
+            "command": "python3 \"${GOALKEEPER_HOOK:-${CLAUDE_PLUGIN_ROOT:-${GOALKEEPER_CORE_HOME:-.}}/bin/goalkeeper_hook.py}\""
           }
         ]
       }
@@ -56,7 +56,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/goalkeeper_hook.py\""
+            "command": "python3 \"${GOALKEEPER_HOOK:-${CLAUDE_PLUGIN_ROOT:-${GOALKEEPER_CORE_HOME:-.}}/bin/goalkeeper_hook.py}\""
           }
         ]
       }

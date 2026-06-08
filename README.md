@@ -41,7 +41,8 @@ Contract → Work → Evidence → Verification → Audit → Accept / Review
   (Python 3 stdlib): the Universal Goal Contract v2, a **validator registry**
   (command · git_diff · file · http · github · ticket · sql · rubric ·
   human_approval), **verifier tiers (0–6)**, a real **completion gate**, **proof
-  bundles**, **risk/approval gates**, **loop modes**, and **subagent packets**.
+  bundles**, **bounded run-output artifacts**, **risk/approval gates**, **loop
+  modes**, and **subagent packets**.
 - **Adapters** (`goalkeeper_core/adapters/`) — `code`, `research`, `writing`,
   `ops`; selected by `goal.domain`.
 - **Hosts** (`hosts/`) — `claude` and `codex` plugins (skills, agents, hooks), a
@@ -67,15 +68,21 @@ Contract → Work → Evidence → Verification → Audit → Accept / Review
 
 ```bash
 # in a target git repo
-python3 /path/to/goalkeeper/bin/goalkeeper init --template code-refactor -o "Refactor auth to the new token API while preserving behavior"
-python3 /path/to/goalkeeper/bin/goalkeeper doctor
-python3 /path/to/goalkeeper/bin/goalkeeper set completion.status active
+python3 /path/to/goalkeeper/bin/goalkeeper init --auto -o "Refactor auth to the new token API while preserving behavior"
+python3 /path/to/goalkeeper/bin/goalkeeper status
 python3 /path/to/goalkeeper/bin/goalkeeper render --format prompt   # paste into /goal
-# …work, recording proof…
+python3 /path/to/goalkeeper/bin/goalkeeper run "<required validator command>"
+python3 /path/to/goalkeeper/bin/goalkeeper checkpoint --id cp1 --evidence "validators passed and diff reviewed" --met
 python3 /path/to/goalkeeper/bin/goalkeeper gate                     # exit 0 only when complete
 python3 /path/to/goalkeeper/bin/goalkeeper complete --accepted-by you
 python3 /path/to/goalkeeper/bin/goalkeeper proof
 ```
+
+If work already started before Goalkeeper was initialized, use
+`goalkeeper adopt -o "Finish the current change"` to scope the contract around
+the current git diff. For local setup, `goalkeeper install all --dry-run` shows
+the shell/Claude/Codex symlinks it would create, and `goalkeeper smoke core`
+proves the end-to-end gate flow in a disposable repo.
 
 **As a Claude Code plugin:** `claude --plugin-dir ./hosts/claude` then
 `/goalkeeper Refactor the auth module…`. **As a Codex plugin:** see
@@ -93,10 +100,11 @@ python3 /path/to/goalkeeper/bin/goalkeeper proof
 
 ## Status
 
-Goalkeeper Core, the hook, and host wiring are covered by a `pytest` suite running
-in CI on Python 3.9–3.12 (zero runtime dependencies). The plugins have not yet been
-exercised in a long live session — test in a disposable repo before production use
-(host hook-loading and skill invocation are environment-specific).
+Goalkeeper Core, the hook, host wiring, installer, and smoke path are covered by a
+57-test `pytest` suite running in CI on Python 3.9–3.12 (zero runtime
+dependencies). The plugins still need long live Claude/Codex sessions before
+claiming production maturity, but local hook execution and isolated proof flows
+are now testable with `goalkeeper host doctor` and `goalkeeper smoke`.
 
 ## License
 

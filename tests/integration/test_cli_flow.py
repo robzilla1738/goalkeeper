@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
+import sys
 
-from tests.conftest import load_state, run_cli
+from tests.conftest import REPO_ROOT, load_state, run_cli
 
 
 def test_init_template_is_valid(repo):
@@ -16,6 +20,19 @@ def test_init_template_is_valid(repo):
     assert s["schema_version"] == 2
     # goal.md is a generated artifact
     assert (repo / ".goalkeeper" / "goal.md").exists()
+
+
+def test_gate_rejects_underspecified_contract(repo):
+    run_cli(repo, "init", "-o", "Make it better")
+    g = run_cli(repo, "gate", "--json")
+    assert g.returncode == 2
+    blockers = {b["code"] for b in json.loads(g.stdout)["blockers"]}
+    assert "contract_not_active" in blockers
+    assert "objective_unbounded" in blockers
+    assert "validator_missing" in blockers
+    assert "required_validator_missing" in blockers
+    assert "scope_missing" in blockers
+    assert "checkpoint_missing" in blockers
 
 
 def test_all_templates_validate(repo):
@@ -81,6 +98,30 @@ def test_gate_complete_proof_lifecycle(repo):
     assert (repo / ".goalkeeper" / "proof.json").exists()
 
 
+def test_run_captures_bounded_output_artifacts(repo, monkeypatch):
+    monkeypatch.setenv("GOALKEEPER_RUN_OUTPUT_LIMIT_BYTES", "5")
+    run_cli(repo, "init", "-o", "Capture output")
+    cmd = (
+        f"{sys.executable} -c "
+        "\"import sys; sys.stdout.write('abcdef'); sys.stderr.write('uvwxyz')\""
+    )
+    r = run_cli(repo, "run", cmd)
+    assert r.returncode == 0
+    runs = (repo / ".goalkeeper" / "runs.jsonl").read_text().splitlines()
+    rec = json.loads(runs[-1])
+    assert rec["cmd"] == cmd
+    assert rec["stdout_truncated"] is True
+    assert rec["stderr_truncated"] is True
+    assert rec["output_limit_bytes"] == 5
+    stdout_path = repo / rec["stdout_artifact"]
+    stderr_path = repo / rec["stderr_artifact"]
+    assert stdout_path.exists()
+    assert stderr_path.exists()
+    assert "abcde" in stdout_path.read_text()
+    assert "output truncated" in stdout_path.read_text()
+    assert "uvwxy" in stderr_path.read_text()
+
+
 def test_complete_refused_until_gate_passes(repo):
     run_cli(repo, "init", "--template", "code-refactor", "-o", "x")
     run_cli(repo, "set", "completion.status", "active")
@@ -113,6 +154,72 @@ def test_detect_writes_command_validators(repo):
     assert any(v["type"] == "command" for v in vals)
 
 
+def test_init_auto_creates_active_contract_from_repo(repo):
+    (repo / "package.json").write_text('{"scripts":{"test":"vitest","typecheck":"tsc --noEmit"}}')
+    (repo / "src").mkdir()
+    (repo / "src" / "index.ts").write_text("export const ok = true;\n")
+    r = run_cli(repo, "init", "--auto", "-o", "Wire the feature")
+    assert r.returncode == 0, r.stderr
+    s = load_state(repo)
+    assert s["completion"]["status"] == "active"
+    assert [v["command"] for v in s["validators"]] == ["npm test", "npm run typecheck"]
+    assert "src/**" in s["scope"]["allowed_resources"]
+    assert s["checkpoints"][0]["id"] == "cp1"
+
+
+def test_adopt_scopes_current_diff(repo):
+    (repo / "src").mkdir()
+    (repo / "src" / "auth.py").write_text("VALUE = 'x'\n")
+    r = run_cli(repo, "adopt", "-o", "Finish auth change")
+    assert r.returncode == 0, r.stderr
+    s = load_state(repo)
+    assert s["completion"]["status"] == "active"
+    assert s["loop_runtime"]["adopted_existing_diff"] is True
+    assert "src/**" in s["scope"]["allowed_resources"]
+
+
+def test_adopt_does_not_forbid_adopted_github_diff(repo):
+    (repo / ".github" / "workflows").mkdir(parents=True)
+    (repo / ".github" / "workflows" / "ci.yml").write_text("name: ci\n")
+    r = run_cli(repo, "adopt", "-o", "Finish CI workflow")
+    assert r.returncode == 0, r.stderr
+    s = load_state(repo)
+    assert ".github/**" in s["scope"]["allowed_resources"]
+    assert ".github/**" not in s["scope"]["forbidden_resources"]
+    assert ".git/**" in s["scope"]["forbidden_resources"]
+
+
+def test_adopt_force_clears_stale_run_evidence(repo):
+    (repo / "pyproject.toml").write_text("[project]\nname='demo'\nversion='0.1.0'\n")
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("VALUE = 1\n")
+    run_cli(repo, "init", "--auto", "-o", "Initial proof")
+    run_cli(repo, "run", "python3 -m compileall -q src")
+    assert (repo / ".goalkeeper" / "runs.jsonl").exists()
+
+    (repo / "src" / "app.py").write_text("VALUE = 2\n")
+    r = run_cli(repo, "adopt", "--force", "-o", "Adopt changed app")
+    assert r.returncode == 0, r.stderr
+    runs = repo / ".goalkeeper" / "runs.jsonl"
+    assert not runs.exists() or runs.read_text() == ""
+    g = run_cli(repo, "gate", "--json")
+    blockers = {b["code"] for b in json.loads(g.stdout)["blockers"]}
+    assert "validator_inconclusive" in blockers
+
+
+def test_gate_reports_invalid_contract_without_crashing(repo):
+    run_cli(repo, "init", "-o", "Scoped objective")
+    state_path = repo / ".goalkeeper" / "state.json"
+    s = load_state(repo)
+    s["goal"] = "not a mapping"
+    state_path.write_text(json.dumps(s))
+    r = run_cli(repo, "gate", "--json")
+    assert r.returncode == 2
+    data = json.loads(r.stdout)
+    assert data["verdict"] == "INCOMPLETE"
+    assert any(b["code"] == "contract_invalid" for b in data["blockers"])
+
+
 def test_split_packets_disjoint(repo):
     run_cli(repo, "init", "-o", "x")
     run_cli(repo, "set", "scope.allowed_resources", "src/a/**,src/b/**")
@@ -121,3 +228,70 @@ def test_split_packets_disjoint(repo):
     assert (repo / ".goalkeeper" / "agent_packets.md").exists()
     lst = run_cli(repo, "packets", "list")
     assert "P1" in lst.stdout and "P2" in lst.stdout
+
+
+def test_copied_host_entrypoints_use_core_home(tmp_path):
+    for host in ("claude", "codex"):
+        copied = tmp_path / host
+        shutil.copytree(REPO_ROOT / "hosts" / host, copied)
+        env = os.environ.copy()
+        env["GOALKEEPER_CORE_HOME"] = str(REPO_ROOT)
+        cli = subprocess.run(
+            [sys.executable, str(copied / "bin" / "goalkeeper"), "--version"],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        assert cli.returncode == 0, cli.stderr
+        assert "goalkeeper" in cli.stdout
+        hook = subprocess.run(
+            [sys.executable, str(copied / "bin" / "goalkeeper_hook.py")],
+            cwd=tmp_path,
+            env=env,
+            input="{}",
+            capture_output=True,
+            text=True,
+        )
+        assert hook.returncode == 0
+
+
+def test_codex_host_does_not_reference_claude_plugin_root():
+    for path in (REPO_ROOT / "hosts" / "codex").rglob("*"):
+        if path.is_file():
+            assert "CLAUDE_PLUGIN_ROOT" not in path.read_text(encoding="utf-8")
+
+
+def test_install_dry_run_json_uses_env_targets(repo, tmp_path, monkeypatch):
+    monkeypatch.setenv("GOALKEEPER_INSTALL_BIN_DIR", str(tmp_path / "bin"))
+    r = run_cli(repo, "install", "shell", "--dry-run", "--json")
+    assert r.returncode == 0, r.stderr
+    data = json.loads(r.stdout)
+    assert data["ok"] is True
+    assert data["dry_run"] is True
+    assert data["steps"][0]["dest"] == str(tmp_path / "bin" / "goalkeeper")
+    assert not (tmp_path / "bin" / "goalkeeper").exists()
+
+
+def test_host_doctor_json_shape(repo):
+    r = run_cli(repo, "host", "doctor", "shell", "--json")
+    assert r.returncode in (0, 2)
+    data = json.loads(r.stdout)
+    assert "checks" in data
+    assert any(c["name"] == "python" for c in data["checks"])
+
+
+def test_smoke_core_passes(repo):
+    r = run_cli(repo, "smoke", "core", "--json")
+    assert r.returncode == 0, r.stderr
+    data = json.loads(r.stdout)
+    assert data["ok"] is True
+    assert data["before_gate"]["verdict"] == "INCOMPLETE"
+    assert data["after_gate"]["verdict"] == "COMPLETE"
+
+
+def test_smoke_codex_hook_passes(repo):
+    r = run_cli(repo, "smoke", "codex", "--json")
+    assert r.returncode == 0, r.stderr
+    data = json.loads(r.stdout)
+    assert data["hook"]["ok"] is True

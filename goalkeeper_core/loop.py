@@ -14,10 +14,18 @@ from .gate import evaluate_gate
 
 # Blocker codes that mean "a human/host must intervene" -> pause, not continue.
 PAUSE_BLOCKERS = {
+    "base_ref_missing",
+    "checkpoint_missing",
+    "contract_invalid",
+    "contract_not_active",
+    "objective_missing",
+    "objective_unbounded",
     "validator_unavailable",
     "approval_required",
+    "required_validator_missing",
     "sandbox_required",
-    "validator_inconclusive",
+    "scope_missing",
+    "validator_missing",
 }
 
 # Modes that never auto-continue inside a session (host scheduler owns re-invocation).

@@ -53,6 +53,11 @@ def test_stop_off_by_default(repo):
 
 def test_stop_continues_while_incomplete(repo):
     _init_active(repo)
+    s = load_state(repo)
+    s["validators"] = [{"id": "ok", "type": "command", "command": "true",
+                        "pass_condition": "exit_zero", "required": True}]
+    (repo / ".goalkeeper" / "state.json").write_text(json.dumps(s, indent=2))
+    run_cli(repo, "run", "true")
     run_cli(repo, "checkpoint", "--add", "do work")
     run_cli(repo, "autocontinue", "on", "--max", "3")
     r = run_hook(repo, {"hook_event_name": "Stop", "cwd": str(repo)})
@@ -66,7 +71,14 @@ def test_stop_allows_stop_when_gate_passes(repo):
     run_cli(repo, "set", "scope.allowed_resources", "**")
     run_cli(repo, "set", "completion.status", "active")
     run_cli(repo, "autocontinue", "on", "--max", "3")
-    # no validators, no checkpoints, scope clean -> gate COMPLETE -> stop (no output)
+    s = load_state(repo)
+    s["validators"] = [{"id": "ok", "type": "command", "command": "true",
+                        "pass_condition": "exit_zero", "required": True}]
+    (repo / ".goalkeeper" / "state.json").write_text(json.dumps(s, indent=2))
+    run_cli(repo, "checkpoint", "--add", "done")
+    run_cli(repo, "run", "true")
+    run_cli(repo, "checkpoint", "--id", "cp1", "--evidence", "true -> exit 0", "--met")
+    # passing validator + checkpoint evidence + clean scope -> gate COMPLETE -> stop (no output)
     r = run_hook(repo, {"hook_event_name": "Stop", "cwd": str(repo)})
     assert r.stdout.strip() == ""
 

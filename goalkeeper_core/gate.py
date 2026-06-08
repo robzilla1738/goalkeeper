@@ -14,6 +14,7 @@ from .evaluation import (
     forbidden_hits,
     scope_drift,
 )
+from .quality import failed_quality_blockers
 from .risk import risk_blockers
 from .tiers import compute_tier
 
@@ -23,11 +24,20 @@ def evaluate_gate(state: dict, root: Path, base_override: str | None = None) -> 
 
     Returns: {verdict, tier, blockers:[(code,detail)], results, changed}.
     """
+    blockers: list[tuple[str, str]] = failed_quality_blockers(state, require_active=True)
+    if any(code == "contract_invalid" for code, _ in blockers):
+        blockers.extend(risk_blockers(state))
+        return {
+            "verdict": "INCOMPLETE",
+            "tier": 0,
+            "blockers": blockers,
+            "results": [],
+            "changed": [],
+        }
+
     ctx = build_context(state, root, base_override)
     results = evaluate_all(state, ctx)
     changed = ctx.changed_files
-
-    blockers: list[tuple[str, str]] = []
 
     # 1. Required validators.
     for v, r in results:
@@ -42,7 +52,12 @@ def evaluate_gate(state: dict, root: Path, base_override: str | None = None) -> 
             blockers.append(("validator_inconclusive", f"{vid}: {r.evidence}"))
 
     # 2. Checkpoints.
-    for cp in state.get("checkpoints", []):
+    checkpoints = state.get("checkpoints", [])
+    if not isinstance(checkpoints, list):
+        checkpoints = []
+    for cp in checkpoints:
+        if not isinstance(cp, dict):
+            continue
         cid = cp.get("id", "?")
         if cp.get("status") != "met":
             blockers.append(("checkpoint_unmet", cid))

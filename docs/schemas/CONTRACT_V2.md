@@ -21,6 +21,12 @@ Each validator is `{id, type, command|params, pass_condition, required}`.
 | `rubric` | records a judgment | 5 | `score_gte:N` |
 | `human_approval` | checks `approvals[]` | 5 | `approved:WHAT` |
 
+Command validators match recorded `goalkeeper run` commands exactly by default.
+Set `params.allow_prefix_match: true` only when a shorter wrapper command should
+intentionally satisfy a more specific validator. Set `params.independent_rerun:
+true` when the command was rerun by an independent verifier and should count as
+tier 4 on pass.
+
 **Deferred** validators (`github_check`, `ticket_state`, `sql_query`, and
 `http_check` when net is disabled) return *unavailable* rather than importing a
 third-party driver. A required-but-unavailable validator is a `validator_unavailable`

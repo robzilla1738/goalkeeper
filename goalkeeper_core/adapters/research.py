@@ -25,7 +25,12 @@ class ResearchAdapter(Adapter):
     def verify_extras(self, contract: dict, results: list) -> list[tuple[str, str]]:
         # Every met checkpoint should reference evidence (a source).
         blockers = []
-        for cp in contract.get("checkpoints", []):
+        checkpoints = contract.get("checkpoints", [])
+        if not isinstance(checkpoints, list):
+            checkpoints = []
+        for cp in checkpoints:
+            if not isinstance(cp, dict):
+                continue
             if cp.get("status") == "met" and not cp.get("evidence"):
                 blockers.append(("checkpoint_no_source", cp.get("id", "?")))
         return blockers

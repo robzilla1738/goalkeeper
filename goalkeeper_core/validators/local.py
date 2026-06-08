@@ -18,7 +18,8 @@ class CommandValidator(Validator):
         cmd = spec.get("command", "")
         if not cmd:
             return ValidatorResult(None, False, self.tier_on_pass, "no command specified")
-        run = latest_run(cmd, ctx.runs)
+        params = spec.get("params", {}) or {}
+        run = latest_run(cmd, ctx.runs, allow_prefix=bool(params.get("allow_prefix_match")))
         if run is None:
             return ValidatorResult(
                 None, True, self.tier_on_pass,
@@ -27,11 +28,24 @@ class CommandValidator(Validator):
         exit_code = int(run.get("exit", 1))
         cond = spec.get("pass_condition", "exit_zero")
         passed = _check_exit(cond, exit_code)
-        tier = 4 if spec.get("params", {}).get("independent_rerun") else self.tier_on_pass
+        tier = 4 if params.get("independent_rerun") else self.tier_on_pass
+        detail = {
+            "exit": exit_code,
+            "run": {k: run.get(k) for k in (
+                "id",
+                "cmd",
+                "duration_ms",
+                "stdout_artifact",
+                "stderr_artifact",
+                "stdout_truncated",
+                "stderr_truncated",
+                "output_limit_bytes",
+            ) if k in run},
+        }
         return ValidatorResult(
             passed, True, tier,
             f"`{cmd}` -> exit {exit_code} ({'pass' if passed else 'fail'} for {cond})",
-            {"exit": exit_code},
+            detail,
         )
 
 

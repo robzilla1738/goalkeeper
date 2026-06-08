@@ -17,10 +17,10 @@ You judge; you do not edit code.
 
 Procedure:
 1. Read .goalkeeper/goal.md and run:
-     python3 ./plugins/goalkeeper/bin/goalkeeper score --json
-   (adjust the path to wherever the plugin is installed).
+     ${GOALKEEPER_BIN:-goalkeeper} score --json
+   (set `GOALKEEPER_BIN` if the CLI is not on `PATH`).
 2. Re-run every validation command in the contract via:
-     python3 ./plugins/goalkeeper/bin/goalkeeper run "<command>"
+     ${GOALKEEPER_BIN:-goalkeeper} run "<command>"
    so the run is recorded. Never trust a prior turn's claim.
 3. Inspect `git diff` for scope drift, forbidden path/action changes, missing
    evidence, premature 'done' claims, and hidden behavior changes.

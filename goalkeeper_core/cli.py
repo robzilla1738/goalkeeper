@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
 from . import SCHEMA_VERSION, __version__
+from . import autocontract as autocontract_mod
 from . import contract as contract_mod
 from . import detect as detect_mod
 from . import gate as gate_mod
+from . import hostdoctor as hostdoctor_mod
+from . import install as install_mod
 from . import packets as packets_mod
 from . import proof as proof_mod
+from . import quality as quality_mod
 from . import render as render_mod
 from . import risk as risk_mod
 from . import schema as schema_mod
+from . import smoke as smoke_mod
 from . import templates as templates_mod
 from .ledger import log as ledger_log
 from .ledger import run_command
@@ -56,7 +62,10 @@ def cmd_init(args: argparse.Namespace) -> int:
     if state_path.exists() and not args.force:
         print(f"{GK_DIR}/ already initialized (use --force to reset state.json).")
     else:
-        if args.template:
+        _reset_runtime_evidence(base)
+        if args.auto:
+            state = autocontract_mod.build_auto_contract(args.objective or "", root)
+        elif args.template:
             try:
                 state = templates_mod.build_from_template(args.template, args.objective or "", root)
             except KeyError:
@@ -69,27 +78,59 @@ def cmd_init(args: argparse.Namespace) -> int:
     _ensure(base / LOG_FILE, _log_template())
     _ensure(base / "events.jsonl", "")
     print(f"Initialized {GK_DIR}/ at {base}")
-    print("Next: `goalkeeper set ...`, `goalkeeper doctor`, then `goalkeeper render --format prompt`.")
+    if args.auto:
+        print("Next: run the required validators with `goalkeeper run`, then mark checkpoint evidence.")
+    else:
+        print("Next: `goalkeeper set ...`, `goalkeeper doctor`, then `goalkeeper render --format prompt`.")
+    return 0
+
+
+def cmd_adopt(args: argparse.Namespace) -> int:
+    root = Path.cwd()
+    base = root / GK_DIR
+    base.mkdir(parents=True, exist_ok=True)
+    state_path = base / STATE_FILE
+    if state_path.exists() and not args.force:
+        return _die(f"{GK_DIR}/ already initialized (use --force to replace it)")
+    _reset_runtime_evidence(base)
+    state = autocontract_mod.build_auto_contract(args.objective or "", root, adopt=True)
+    state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    _render_goal_md(state, root)
+    _ensure(base / LOG_FILE, _log_template())
+    _ensure(base / "events.jsonl", "")
+    print(f"Adopted current work into {GK_DIR}/ at {base}")
+    print("Next: `goalkeeper status`, then run validators and record checkpoint evidence.")
     return 0
 
 
 def cmd_status(args: argparse.Namespace) -> int:
     state = _need_state()
     goal = state.get("goal", {})
+    goal = goal if isinstance(goal, dict) else {}
     cps = state.get("checkpoints", [])
-    met = sum(1 for c in cps if c.get("status") == "met")
+    cps = cps if isinstance(cps, list) else []
+    validators = state.get("validators", [])
+    validators = validators if isinstance(validators, list) else []
     risk = state.get("risk", {})
+    risk = risk if isinstance(risk, dict) else {}
     loop = state.get("loop", {})
-    print(f"status      : {state.get('completion', {}).get('status', '?')}")
+    loop = loop if isinstance(loop, dict) else {}
+    scope = state.get("scope", {})
+    scope = scope if isinstance(scope, dict) else {}
+    completion = state.get("completion", {})
+    completion = completion if isinstance(completion, dict) else {}
+    met = sum(1 for c in cps if isinstance(c, dict) and c.get("status") == "met")
+    print(f"status      : {completion.get('status', '?')}")
     print(f"objective   : {goal.get('objective') or '(unset)'}")
     print(f"domain      : {goal.get('domain', 'code')}  priority: {goal.get('priority', '?')}")
     print(f"checkpoints : {met}/{len(cps)} met")
-    print(f"validators  : {len(state.get('validators', []))}")
-    print(f"allowed     : {', '.join(state.get('scope', {}).get('allowed_resources', [])) or '(none)'}")
-    print(f"forbidden   : {', '.join(state.get('scope', {}).get('forbidden_resources', [])) or '(none)'}")
+    print(f"validators  : {len(validators)}")
+    print(f"allowed     : {', '.join(scope.get('allowed_resources', [])) or '(none)'}")
+    print(f"forbidden   : {', '.join(scope.get('forbidden_resources', [])) or '(none)'}")
     print(f"risk        : {risk.get('level', '?')}  external_side_effects: {risk.get('external_side_effects', False)}")
     print(f"loop        : {loop.get('mode')}  max_turns: {loop.get('max_turns')}")
     print(f"locked      : {contract_mod.is_locked(state)}")
+    print(f"next        : {_next_action(state, find_root())}")
     return 0
 
 
@@ -238,36 +279,23 @@ def cmd_validate_contract(args: argparse.Namespace) -> int:
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     state = _need_state()
-    checks: list[tuple[str, bool, str]] = []
     errors = schema_mod.validate(state, strict=True)
-    checks.append(("contract validates (strict)", not errors, "" if not errors else f"{len(errors)} error(s)"))
-    obj = (get_path(state, "goal.objective") or "").strip()
-    checks.append(("objective set", bool(obj), obj[:60]))
-    vague = ("better", "improve", "clean up", "etc", "and so on", "as needed")
-    bounded = bool(obj) and not any(v in obj.lower() for v in vague)
-    checks.append(("objective is bounded", bounded, "" if bounded else "contains vague language"))
-    vals = state.get("validators", [])
-    checks.append(("validators present", bool(vals), f"{len(vals)}"))
-    req = any(v.get("required") for v in vals)
-    checks.append(("at least one required validator", req, ""))
-    bounds = bool(get_path(state, "scope.allowed_resources")) or bool(get_path(state, "scope.forbidden_resources"))
-    checks.append(("scope boundaries present", bounds, ""))
-    checks.append(("at least one checkpoint", bool(state.get("checkpoints")), ""))
-    checks.append(("diff baseline captured", bool(state.get("base_ref")), (state.get("base_ref") or "")[:12]))
+    checks = quality_mod.contract_quality_checks(state, require_active=False)
 
-    passed = sum(1 for _, ok, _ in checks if ok)
+    passed = sum(1 for c in checks if c.ok)
     total = len(checks)
     pct = round(100 * passed / total)
     if args.json:
         print(json.dumps({"contract_quality": pct, "passed": passed, "total": total,
-                          "checks": [{"name": n, "ok": ok, "detail": d} for n, ok, d in checks],
+                          "checks": [{"name": c.name, "ok": c.ok, "detail": c.detail,
+                                      "blocker": c.blocker} for c in checks],
                           "schema_errors": errors}, indent=2))
     else:
         print(f"contract quality: {pct}% ({passed}/{total} checks)\n")
-        for name, ok, detail in checks:
-            line = f"  [{'PASS' if ok else 'FAIL'}] {name}"
-            if detail:
-                line += f"  ({detail})"
+        for c in checks:
+            line = f"  [{'PASS' if c.ok else 'FAIL'}] {c.name}"
+            if c.detail:
+                line += f"  ({c.detail})"
             print(line)
         if errors:
             print("\nschema errors:")
@@ -457,6 +485,59 @@ def cmd_log(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_install(args: argparse.Namespace) -> int:
+    try:
+        result = install_mod.install(args.target, dry_run=args.dry_run)
+    except ValueError as exc:
+        return _die(str(exc))
+    _print_action_result(result, as_json=args.json)
+    return 0 if result["ok"] else 2
+
+
+def cmd_uninstall(args: argparse.Namespace) -> int:
+    try:
+        result = install_mod.uninstall(args.target, dry_run=args.dry_run)
+    except ValueError as exc:
+        return _die(str(exc))
+    _print_action_result(result, as_json=args.json)
+    return 0 if result["ok"] else 2
+
+
+def cmd_host(args: argparse.Namespace) -> int:
+    if args.action != "doctor":
+        return _die(f"unknown host action {args.action}")
+    result = hostdoctor_mod.doctor(args.target)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"host doctor: {'OK' if result['ok'] else 'FAIL'} ({args.target})")
+        for c in result["checks"]:
+            status = "PASS" if c["ok"] else c["severity"].upper()
+            line = f"  [{status}] {c['name']}: {c.get('detail', '')}"
+            if c.get("fix") and not c["ok"]:
+                line += f"  fix: {c['fix']}"
+            print(line)
+    return 0 if result["ok"] else 2
+
+
+def cmd_smoke(args: argparse.Namespace) -> int:
+    try:
+        result = smoke_mod.smoke(args.target)
+    except ValueError as exc:
+        return _die(str(exc))
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"smoke {args.target}: {'PASS' if result['ok'] else 'FAIL'}")
+        before = result.get("before_gate", {}).get("verdict", "?")
+        after = result.get("after_gate", {}).get("verdict", "?")
+        print(f"  gate before evidence: {before}")
+        print(f"  gate after evidence : {after}")
+        if result.get("hook"):
+            print(f"  hook deny check     : {'PASS' if result['hook']['ok'] else 'FAIL'}")
+    return 0 if result["ok"] else 2
+
+
 # --------------------------------------------------------------------------- #
 # Templates / helpers
 # --------------------------------------------------------------------------- #
@@ -479,6 +560,54 @@ Created: {now()}
 """
 
 
+def _print_action_result(result: dict, as_json: bool = False) -> None:
+    if as_json:
+        print(json.dumps(result, indent=2))
+        return
+    print(f"{result['action']}: {'OK' if result['ok'] else 'FAIL'}" + (" (dry-run)" if result["dry_run"] else ""))
+    for step in result["steps"]:
+        status = "PASS" if step["ok"] else "FAIL"
+        print(f"  [{status}] {step['target']}: {step.get('detail') or step.get('error')}")
+        print(f"        {step['source']} -> {step['dest']}")
+
+
+def _reset_runtime_evidence(base: Path) -> None:
+    for name in ("runs.jsonl", "events.jsonl", "work_log.md", "proof.md", "proof.json", "agent_packets.md"):
+        path = base / name
+        if path.exists() or path.is_symlink():
+            path.unlink()
+    artifacts = base / "artifacts"
+    if artifacts.is_dir():
+        shutil.rmtree(artifacts)
+
+
+def _next_action(state: dict, root: Path) -> str:
+    completion = state.get("completion", {})
+    completion = completion if isinstance(completion, dict) else {}
+    status = completion.get("status")
+    if status not in ("active", "complete"):
+        return "goalkeeper set completion.status active"
+    g = gate_mod.evaluate_gate(state, root)
+    if g["verdict"] == "COMPLETE":
+        if status != "complete":
+            return "goalkeeper complete --accepted-by <name>"
+        return "goalkeeper proof"
+    code, detail = g["blockers"][0] if g["blockers"] else ("unknown", "run goalkeeper gate")
+    if code in ("validator_missing", "required_validator_missing"):
+        return "goalkeeper detect --apply"
+    if code == "validator_inconclusive":
+        return f"goalkeeper run <required command>  ({detail})"
+    if code == "checkpoint_unmet":
+        return f"goalkeeper checkpoint --id {detail} --evidence \"...\" --met"
+    if code == "checkpoint_no_evidence":
+        return f"goalkeeper checkpoint --id {detail} --evidence \"...\""
+    if code == "scope_missing":
+        return "goalkeeper set scope.allowed_resources \"src/**,tests/**\""
+    if code == "approval_required":
+        return "goalkeeper approve <what> --by <name>"
+    return f"resolve gate blocker: {code}: {detail}"
+
+
 # --------------------------------------------------------------------------- #
 # Parser
 # --------------------------------------------------------------------------- #
@@ -491,8 +620,14 @@ def build_parser() -> argparse.ArgumentParser:
     pi.add_argument("-o", "--objective", default="")
     pi.add_argument("--template", help=f"one of {templates_mod.template_names()}")
     pi.add_argument("--domain", help="code|research|writing|ops")
+    pi.add_argument("--auto", action="store_true", help="inspect the repo and create an active code contract")
     pi.add_argument("--force", action="store_true")
     pi.set_defaults(func=cmd_init)
+
+    padopt = sub.add_parser("adopt", help="create a contract around the current git diff")
+    padopt.add_argument("-o", "--objective", default="")
+    padopt.add_argument("--force", action="store_true")
+    padopt.set_defaults(func=cmd_adopt)
 
     sub.add_parser("status", help="print status summary").set_defaults(func=cmd_status)
 
@@ -568,6 +703,29 @@ def build_parser() -> argparse.ArgumentParser:
 
     pl = sub.add_parser("log", help="append a line to work_log.md")
     pl.add_argument("message"); pl.set_defaults(func=cmd_log)
+
+    pins = sub.add_parser("install", help="install Goalkeeper shell/host entrypoints")
+    pins.add_argument("target", choices=["shell", "claude", "codex", "all"])
+    pins.add_argument("--dry-run", action="store_true")
+    pins.add_argument("--json", action="store_true")
+    pins.set_defaults(func=cmd_install)
+
+    pun = sub.add_parser("uninstall", help="remove Goalkeeper-installed entrypoints")
+    pun.add_argument("target", choices=["shell", "claude", "codex", "all"])
+    pun.add_argument("--dry-run", action="store_true")
+    pun.add_argument("--json", action="store_true")
+    pun.set_defaults(func=cmd_uninstall)
+
+    phost = sub.add_parser("host", help="host diagnostics")
+    phost.add_argument("action", choices=["doctor"])
+    phost.add_argument("target", nargs="?", default="all", choices=["shell", "claude", "codex", "all"])
+    phost.add_argument("--json", action="store_true")
+    phost.set_defaults(func=cmd_host)
+
+    psmoke = sub.add_parser("smoke", help="run an isolated end-to-end smoke check")
+    psmoke.add_argument("target", nargs="?", default="core", choices=["core", "claude", "codex"])
+    psmoke.add_argument("--json", action="store_true")
+    psmoke.set_defaults(func=cmd_smoke)
     return p
 
 

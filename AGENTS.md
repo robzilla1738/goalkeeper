@@ -13,8 +13,9 @@ the work done until there is evidence** — gated by the best available verifier
 domain-neutral via adapters.
 
 Core principle: **the LLM decides, deterministic code verifies.** Never make the
-verifier trust the agent's word — proof is an exit code, a clean diff, recorded
-evidence, and (where required) a human approval.
+verifier trust the agent's word — proof is a recorded validation run, bounded
+output artifacts, a clean diff, checkpoint evidence, and (where required) a human
+approval.
 
 ## Hard constraints (do not break)
 
@@ -40,7 +41,7 @@ goalkeeper_core/            # the engine (stdlib only) — the IP
   contract.py               # v2 default skeleton, lock/unlock/amendments, hashing
   state.py                  # load/save state.json, dotted-path get/set, coercion
   schema.py                 # hand-rolled structural validator (+ strict cross-field)
-  ledger.py                 # runs.jsonl / events / work_log; run_command, latest_run
+  ledger.py                 # runs.jsonl / artifacts / work_log; run_command, latest_run
   gitio.py  matching.py     # git helpers + changed_files; glob matching
   validators/               # registry: base.py + local.py + deferred.py + human.py
   evaluation.py             # build EvalContext, evaluate_all, scope/forbidden helpers
@@ -52,6 +53,10 @@ goalkeeper_core/            # the engine (stdlib only) — the IP
   packets.py                # split/list/run/reconcile, disjoint write-sets
   render.py                 # goal.md / /goal prompt / json
   detect.py templates.py    # stack presets + seed; init --template presets
+  autocontract.py           # init --auto / adopt from repo facts and current diff
+  quality.py                # shared doctor/gate contract-quality checks
+  install.py hostdoctor.py  # local symlink installer + host diagnostics
+  smoke.py                  # isolated proof-flow and host-hook smoke checks
   adapters/                 # code, research, writing, ops (get_adapter by goal.domain)
 bin/                        # thin entrypoints: sys.path bootstrap -> import goalkeeper_core
 schema/                     # published JSON Schema for the v2 contract
@@ -69,13 +74,11 @@ import the same Core — don't duplicate logic into the hook.
 
 ```bash
 pip install pytest          # dev only
-pytest -q                   # full suite (33 cases; 3.9/3.11/3.12 in CI)
-python -m compileall -q goalkeeper_core
-python bin/goalkeeper --version
-# end-to-end smoke (in a throwaway git repo):
-python bin/goalkeeper init --template code-refactor -o "..."
-python bin/goalkeeper validate-contract --strict
-python bin/goalkeeper gate            # exit 2 until evidence exists
+pytest -q                   # full suite (57 cases; 3.9/3.11/3.12 in CI)
+python3 -m compileall -q goalkeeper_core
+python3 bin/goalkeeper --version
+python3 bin/goalkeeper host doctor all --json
+python3 bin/goalkeeper smoke core --json
 ```
 
 CI: `.github/workflows/ci.yml` (compile + manifest JSON + `validate-contract --strict`
@@ -104,19 +107,21 @@ over every example + pytest). Keep it green.
 
 ## Status & roadmap (what's done / what's open)
 
-**Done (v0.3.0):** v2 contract + JSON Schema + `validate-contract`; validator registry;
-verifier tiers; `gate`/`complete`; proof bundles; risk/approval gates + `approve`; loop
-modes + gate-aware Stop hook; contract lock/amendments; packet executor; templates;
-adapters (code/research/writing/ops); render (goal.md generated); hosts for
+**Done (v0.4.0):** v2 contract + JSON Schema + `validate-contract`; validator registry;
+verifier tiers; `gate`/`complete`; strict gate quality checks; bounded run-output
+artifacts; proof bundles; risk/approval gates + `approve`; loop modes + gate-aware
+Stop hook; contract lock/amendments; packet executor; templates; adapters
+(code/research/writing/ops); `init --auto`/`adopt`; symlink installer; host doctor;
+isolated smoke checks; render (goal.md generated); hosts for
 claude/codex/github-actions/shell; rewritten docs/skills/tests; runnable examples.
 
 **Open / next:**
-- **Standalone plugin packaging.** The bootstrap works from a clone / `--plugin-dir`
-  and in CI, but a marketplace-*copied* install needs `GOALKEEPER_CORE_HOME` or Core
-  vendored into the host package. Decide: vendor `goalkeeper_core` into `hosts/*` at
-  release time, or ship a tiny installer. (Documented in `hosts/*/README.md`.)
-- **Live host validation.** Not yet exercised in a long Claude Code/Codex session —
-  smoke-test the gate-aware Stop on both (Claude `decision:block` vs Codex Stop).
+- **Standalone plugin packaging.** The local installer uses symlinks to this checkout.
+  Marketplace-copied installs still need a release-time decision: vendor
+  `goalkeeper_core` into `hosts/*`, or ship a bootstrap installer.
+- **Live host validation.** Isolated CLI and hook smoke tests pass, but Goalkeeper has
+  not yet been exercised in a long Claude Code/Codex session with real skill
+  invocation and Stop-hook continuation.
 - **External validators.** `github_check`/`ticket_state`/`sql_query` are deferred/manual.
   If you wire real execution, do it behind an opt-in env flag and keep the stdlib-only
   default path intact (mirror the `http_check` + `GOALKEEPER_ALLOW_NET` pattern).
@@ -134,5 +139,5 @@ claude/codex/github-actions/shell; rewritten docs/skills/tests; runnable example
 - The seatbelt hook blocks obvious destructive/forbidden `Bash` only — it is **not** a
   sandbox. Real isolation is the host's job.
 
-The full plan that produced v0.3.0 lives in the PR/commit history; the design rationale
+The full plan that produced v0.4.0 lives in the PR/commit history; the design rationale
 is in `docs/concepts/ARCHITECTURE.md`.

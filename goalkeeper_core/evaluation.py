@@ -21,16 +21,21 @@ def build_context(state: dict, root: Path, base_override: str | None = None) -> 
 
 
 def evaluate_all(state: dict, ctx: EvalContext) -> list[tuple[dict, ValidatorResult]]:
-    return [(v, evaluate(v, ctx)) for v in state.get("validators", [])]
+    validators = state.get("validators", [])
+    if not isinstance(validators, list):
+        return []
+    return [(v, evaluate(v, ctx)) for v in validators if isinstance(v, dict)]
 
 
 def scope_drift(state: dict, changed: list[str]) -> list[str]:
-    allowed = state.get("scope", {}).get("allowed_resources", [])
+    scope = state.get("scope", {})
+    allowed = scope.get("allowed_resources", []) if isinstance(scope, dict) else []
     return [f for f in changed if allowed and not matches_any(f, allowed)]
 
 
 def forbidden_hits(state: dict, changed: list[str]) -> list[str]:
-    forbidden = state.get("scope", {}).get("forbidden_resources", [])
+    scope = state.get("scope", {})
+    forbidden = scope.get("forbidden_resources", []) if isinstance(scope, dict) else []
     return [f for f in changed if matches_any(f, forbidden)]
 
 
