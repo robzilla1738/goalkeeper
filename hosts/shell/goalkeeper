@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""Goalkeeper CLI entrypoint.
+
+Thin bootstrap: locate the goalkeeper_core package (no install required) and
+dispatch. Works identically in Claude Code, Codex, CI, and a bare shell.
+"""
+import os
+import sys
+
+
+def _bootstrap() -> None:
+    here = os.path.dirname(os.path.realpath(__file__))  # realpath => symlink-safe
+    # Honor an explicit override first.
+    override = os.environ.get("GOALKEEPER_CORE_HOME")
+    candidates = []
+    if override:
+        candidates.append(override)
+    # Walk upward looking for a dir that contains goalkeeper_core/__init__.py.
+    cur = here
+    for _ in range(8):
+        candidates.append(cur)
+        cur = os.path.dirname(cur)
+    for root in candidates:
+        if os.path.isfile(os.path.join(root, "goalkeeper_core", "__init__.py")):
+            if root not in sys.path:
+                sys.path.insert(0, root)
+            return
+    # Fall back to two-levels-up (bin/ at repo root) so a clear error surfaces.
+    sys.path.insert(0, os.path.abspath(os.path.join(here, "..")))
+
+
+_bootstrap()
+
+from goalkeeper_core.cli import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main())

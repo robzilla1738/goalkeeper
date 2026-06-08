@@ -1,0 +1,67 @@
+# Example workflow: run the Goalkeeper gate on every PR and post the verdict as
+# a sticky PR comment. Copy this into .github/workflows/ in a consuming repo
+# (it assumes Goalkeeper is vendored or installed and a .goalkeeper/ exists).
+name: Goalkeeper Gate
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # gate diffs against base_ref
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Goalkeeper gate
+        id: gate
+        continue-on-error: true
+        run: |
+          python bin/goalkeeper gate --ci | tee gate.txt
+          echo "verdict=$(grep -oE 'GOALKEEPER_VERDICT=[A-Z]+' gate.txt | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+          echo "tier=$(grep -oE 'TIER=[0-9]+/6' gate.txt | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+
+      - name: Post verdict comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const raw = fs.readFileSync('gate.txt', 'utf8');
+            const blockers = raw.split('\n')
+              .filter(l => l.startsWith('::'))
+              .map(l => l.replace(/^::([a-z_]+):: /, '- **$1**: '));
+            const verdict = '${{ steps.gate.outputs.verdict }}' || 'UNKNOWN';
+            const tier = '${{ steps.gate.outputs.tier }}' || '0/6';
+            const body = [
+              `### Goalkeeper verdict: **${verdict}**`,
+              ``,
+              `Completion tier: **${tier}**`,
+              ``,
+              blockers.length ? `**Needs review:**\n${blockers.join('\n')}` : `All gate checks passed.`,
+            ].join('\n');
+            const {owner, repo} = context.repo;
+            const issue_number = context.issue.number;
+            const marker = '<!-- goalkeeper-gate -->';
+            const comments = await github.rest.issues.listComments({owner, repo, issue_number});
+            const existing = comments.data.find(c => c.body.includes(marker));
+            const full = `${marker}\n${body}`;
+            if (existing) {
+              await github.rest.issues.updateComment({owner, repo, comment_id: existing.id, body: full});
+            } else {
+              await github.rest.issues.createComment({owner, repo, issue_number, body: full});
+            }
+
+      - name: Enforce gate
+        if: steps.gate.outputs.verdict != 'COMPLETE'
+        run: |
+          echo "Goalkeeper gate is INCOMPLETE; see the PR comment for blockers."
+          exit 1

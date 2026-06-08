@@ -4,3 +4,6 @@ __pycache__/
 
 # Goalkeeper project-local state (created at runtime in target repos)
 .goalkeeper/
+# ...but the committed example contracts under examples/ are intentional.
+!examples/**/.goalkeeper/
+!examples/**/.goalkeeper/state.json

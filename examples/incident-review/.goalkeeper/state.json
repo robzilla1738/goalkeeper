@@ -1,0 +1,91 @@
+{
+  "schema_version": 2,
+  "created_at": "2026-06-08T14:28:50+00:00",
+  "updated_at": "2026-06-08T14:28:50+00:00",
+  "host": "generic",
+  "base_ref": "",
+  "goal": {
+    "id": "g-20260608-write-the-postmortem-for-the-2026-06-aut",
+    "title": "Incident Review",
+    "objective": "Write the postmortem for the 2026-06 auth outage with timeline, root cause, and action items.",
+    "owner": "robert",
+    "domain": "ops",
+    "priority": "medium"
+  },
+  "scope": {
+    "allowed_resources": [],
+    "forbidden_resources": [],
+    "allowed_actions": [],
+    "forbidden_actions": []
+  },
+  "validators": [
+    {
+      "id": "postmortem",
+      "type": "file_exists",
+      "params": {
+        "path": "incidents/postmortem.md"
+      },
+      "pass_condition": "exists",
+      "required": true
+    },
+    {
+      "id": "signoff",
+      "type": "human_approval",
+      "pass_condition": "approved:signoff",
+      "required": true
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "cp1",
+      "description": "timeline, root cause, action items captured",
+      "evidence_required": "doc link",
+      "status": "pending"
+    }
+  ],
+  "loop": {
+    "mode": "human_review_loop",
+    "max_turns": 12,
+    "max_wall_time_minutes": 60,
+    "max_cost_usd": 5.0,
+    "stop_when": [
+      "all_required_validators_pass",
+      "all_checkpoints_met"
+    ],
+    "pause_when": [
+      "needs_human_input",
+      "approval_required"
+    ]
+  },
+  "risk": {
+    "level": "high",
+    "data_sensitivity": "normal",
+    "external_side_effects": false,
+    "approval_required_before": [
+      "publish postmortem"
+    ]
+  },
+  "evidence": {
+    "ledger": ".goalkeeper/work_log.md",
+    "validation_runs": ".goalkeeper/runs.jsonl",
+    "events": ".goalkeeper/events.jsonl",
+    "artifacts_dir": ".goalkeeper/artifacts"
+  },
+  "completion": {
+    "status": "draft",
+    "accepted_by": null,
+    "completed_at": null
+  },
+  "loop_runtime": {
+    "autocontinue": false,
+    "autocontinue_turns_used": 0,
+    "max_autocontinue_turns": 4
+  },
+  "lock": {
+    "locked": false,
+    "locked_at": null,
+    "hash": null
+  },
+  "approvals": [],
+  "amendments": []
+}
