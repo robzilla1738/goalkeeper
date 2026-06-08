@@ -62,8 +62,21 @@ goalkeeper-loop/
   codex-agents/                 # Codex custom-agent TOML examples for .codex/agents/
   examples/marketplace.json     # local Codex marketplace config
   tests/                        # pytest suite (CLI + hook, run via `pytest -q`)
+  docs/                         # full reference docs (see Documentation below)
+  CHANGELOG.md
   README.md
 ```
+
+## Documentation
+
+| Doc | What's in it |
+|-----|--------------|
+| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | How it works: the model ⇄ CLI ⇄ hook split, lifecycle, data flow |
+| [docs/GOAL_CONTRACT.md](./docs/GOAL_CONTRACT.md) | The Goal Contract concept, `state.json` schema, `goal.md` structure |
+| [docs/CLI.md](./docs/CLI.md) | Full `goalkeeper` command reference with examples and exit codes |
+| [docs/HOOKS.md](./docs/HOOKS.md) | Hook event → behavior → JSON I/O reference, and security limits |
+| [CHANGELOG.md](./CHANGELOG.md) | Version history |
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) | Dev setup, tests, adding a stack preset, PR flow |
 
 ## Skills
 
@@ -82,11 +95,18 @@ goalkeeper-loop/
 The hook (`bin/goalkeeper_hook.py`) is intentionally conservative. By default it:
 
 - injects active `.goalkeeper` context into new sessions, prompts, and subagents
+  (`SessionStart`, `UserPromptSubmit`, `SubagentStart`)
 - blocks obvious destructive commands (dangerous `rm` / `git reset --hard` /
   `git clean -fd` / force-push / `mkfs` / `dd` / fork-bomb patterns)
-- blocks commands mentioning configured forbidden paths/actions
-- logs hook events to `.goalkeeper/events.jsonl`
+- blocks `Bash` commands that reference a configured forbidden **path**
+  (forbidden *actions* are enforced by `goalkeeper-audit` reading the diff, not
+  by guessing intent from a shell string)
+- logs every hook event to `.goalkeeper/events.jsonl`
 - does **not** auto-continue unless explicitly enabled
+
+> It is a seatbelt, not a sandbox: command blocking is best-effort pattern
+> matching on the shell string and can be bypassed. Rely on your host's
+> permission/sandbox modes for real isolation. See [docs/HOOKS.md](./docs/HOOKS.md).
 
 ### Optional bounded auto-continue (off by default)
 
@@ -258,7 +278,7 @@ That is the core: **objective, scope, proof, constraints, and stop budget.**
 ## Status & testing
 
 A `pytest` suite (`tests/`) covers the CLI helpers, scoring, the run ledger,
-`doctor`, and the hook end-to-end (32 tests); CI runs it on Python 3.9–3.12.
+`doctor`, and the hook end-to-end (33 tests); CI runs it on Python 3.9–3.12.
 
 ```
 cd goalkeeper-loop && pip install pytest && pytest -q

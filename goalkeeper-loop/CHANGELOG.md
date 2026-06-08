@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.1 — Documentation
+
+- Added a full `docs/` set: `ARCHITECTURE.md`, `GOAL_CONTRACT.md` (incl.
+  `state.json` schema), `CLI.md` (every command/flag/exit code), `HOOKS.md`
+  (events, JSON I/O, security model).
+- Added root `CONTRIBUTING.md` and `SECURITY.md`; rewrote the top-level README
+  as a public-repo landing page with CI/License badges and doc links.
+- Corrected README inaccuracies: hook blocks forbidden *paths* only (not
+  actions), test count (33), `SubagentStart` wiring.
+- Removed the unused `--host` flag from `generate-goal`.
+
 ## 0.2.0 — Hardening pass
 
 Real-world correctness, cross-host accuracy, and test coverage.
