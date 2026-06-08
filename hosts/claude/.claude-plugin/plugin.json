@@ -1,0 +1,32 @@
+{
+  "name": "goalkeeper",
+  "version": "0.3.0",
+  "description": "Evidence-first control plane for agentic work: a Universal Goal Contract (v2), validator registry, verifier tiers, completion gate, proof bundles, risk/approval gates, and subagent packets above native /goal, hooks, skills, and subagents. Don't let agents claim done — make them prove it.",
+  "author": {
+    "name": "Robert Courson"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/robzilla1738/goalkeeper",
+  "repository": "https://github.com/robzilla1738/goalkeeper",
+  "keywords": [
+    "goal",
+    "loop",
+    "agentic",
+    "contract",
+    "verifier",
+    "subagents",
+    "refactor",
+    "migration"
+  ],
+  "skills": [
+    "./skills/goalkeeper",
+    "./skills/goalkeeper-audit",
+    "./skills/goalkeeper-split"
+  ],
+  "agents": [
+    "./agents/goalkeeper-researcher.md",
+    "./agents/goalkeeper-implementer.md",
+    "./agents/goalkeeper-verifier.md"
+  ],
+  "hooks": "./hooks/hooks.json"
+}

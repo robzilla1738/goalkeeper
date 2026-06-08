@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/robzilla1738/goalkeeper/schema/goalkeeper.contract.schema.json",
+  "title": "Goalkeeper Universal Goal Contract v2",
+  "description": "Canonical state.json contract. Runtime fields (base_ref, lock, approvals, amendments, loop_runtime, host, timestamps) are permitted alongside the contract via additionalProperties.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version", "goal", "scope", "validators", "checkpoints", "loop", "risk", "evidence", "completion"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "goal": {
+      "type": "object",
+      "required": ["id", "title", "objective", "owner", "domain", "priority"],
+      "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string"},
+        "objective": {"type": "string"},
+        "owner": {"type": "string"},
+        "domain": {"type": "string", "enum": ["code", "research", "writing", "ops"]},
+        "priority": {"type": "string", "enum": ["low", "medium", "high", "critical"]}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "allowed_resources": {"type": "array", "items": {"type": "string"}},
+        "forbidden_resources": {"type": "array", "items": {"type": "string"}},
+        "allowed_actions": {"type": "array", "items": {"type": "string"}},
+        "forbidden_actions": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "validators": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "pass_condition", "required"],
+        "properties": {
+          "id": {"type": "string"},
+          "type": {"type": "string", "enum": ["command", "git_diff", "file_exists", "file_contains", "http_check", "github_check", "ticket_state", "sql_query", "rubric", "human_approval"]},
+          "command": {"type": "string"},
+          "params": {"type": "object"},
+          "pass_condition": {"type": "string"},
+          "required": {"type": "boolean"}
+        },
+        "allOf": [
+          {"if": {"properties": {"type": {"const": "command"}}}, "then": {"required": ["command"]}}
+        ]
+      }
+    },
+    "checkpoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "description", "status"],
+        "properties": {
+          "id": {"type": "string"},
+          "description": {"type": "string"},
+          "evidence_required": {"type": "string"},
+          "status": {"type": "string", "enum": ["pending", "met", "blocked"]},
+          "evidence": {"type": "string"}
+        }
+      }
+    },
+    "loop": {
+      "type": "object",
+      "required": ["mode", "max_turns"],
+      "properties": {
+        "mode": {"type": "string", "enum": ["goal_until_pass", "repair_until_pass", "research_until_covered", "watch_until_event", "scheduled_recurring", "human_review_loop", "multi_agent_packet_loop"]},
+        "max_turns": {"type": "integer", "minimum": 1},
+        "max_wall_time_minutes": {"type": "number", "minimum": 0},
+        "max_cost_usd": {"type": "number", "minimum": 0},
+        "stop_when": {"type": "array", "items": {"type": "string"}},
+        "pause_when": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "risk": {
+      "type": "object",
+      "required": ["level", "external_side_effects"],
+      "properties": {
+        "level": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
+        "data_sensitivity": {"type": "string"},
+        "external_side_effects": {"type": "boolean"},
+        "approval_required_before": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "ledger": {"type": "string"},
+        "validation_runs": {"type": "string"},
+        "events": {"type": "string"},
+        "artifacts_dir": {"type": "string"}
+      }
+    },
+    "completion": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {"type": "string", "enum": ["draft", "active", "paused", "complete", "abandoned"]},
+        "accepted_by": {"type": ["string", "null"]},
+        "completed_at": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

@@ -1,7 +1,8 @@
-# Contributing to Goalkeeper Loop
+# Contributing to Goalkeeper
 
 Thanks for your interest! This is a small, dependency-free project — easy to hack
-on. Everything lives under [`goalkeeper-loop/`](./goalkeeper-loop).
+on. The engine lives in [`goalkeeper_core/`](./goalkeeper_core); host wiring lives
+under [`hosts/`](./hosts).
 
 ## Dev setup
 
@@ -10,7 +11,7 @@ dependency is `pytest`.
 
 ```bash
 git clone https://github.com/robzilla1738/goalkeeper
-cd goalkeeper/goalkeeper-loop
+cd goalkeeper
 pip install pytest
 pytest -q
 ```
@@ -19,57 +20,60 @@ pytest -q
 
 | Path | What it is |
 |------|------------|
-| `bin/goalkeeper` | The CLI (Python, no extension) — deterministic state + verification |
-| `bin/goalkeeper_hook.py` | The cross-host hook |
-| `hooks/hooks.json` | Wires the hook to host events |
-| `skills/*/SKILL.md` | Instruction playbooks the model reads |
-| `agents/*.md`, `codex-agents/*.toml` | Claude / Codex subagents |
-| `tests/test_goalkeeper.py` | The full test suite |
-| `docs/` | Reference docs |
+| `goalkeeper_core/` | Domain-neutral engine: contract, state, schema, ledger, validators, tiers, gate, proof, risk, loop, packets, render, adapters |
+| `bin/goalkeeper`, `bin/goalkeeper_hook.py` | Thin entrypoints (sys.path bootstrap → Core) |
+| `hosts/claude`, `hosts/codex` | Plugin packages: skills, agents, hooks |
+| `hosts/github-actions`, `hosts/shell` | CI gate Action/workflow; bare-shell entrypoint |
+| `schema/` | Published JSON Schema for the v2 contract |
+| `examples/` | Runnable v2 example contracts |
+| `tests/{unit,integration,hooks}/` | The test suite |
+| `docs/` | Reference docs (concepts/schemas/adapters/security/playbooks) |
 
-See [docs/ARCHITECTURE.md](./goalkeeper-loop/docs/ARCHITECTURE.md) for how the
+See [docs/concepts/ARCHITECTURE.md](./docs/concepts/ARCHITECTURE.md) for how the
 pieces fit together.
 
 ## Before you open a PR
 
-Run the same checks CI runs:
+Run the same checks CI runs (from the repo root):
 
 ```bash
-cd goalkeeper-loop
-python -m py_compile bin/goalkeeper bin/goalkeeper_hook.py     # syntax
-python -c "import json; [json.load(open(f)) for f in ['.claude-plugin/plugin.json','.codex-plugin/plugin.json','hooks/hooks.json','examples/marketplace.json']]"
-pytest -q                                                       # tests
+python -m compileall -q goalkeeper_core
+python -m py_compile bin/goalkeeper bin/goalkeeper_hook.py
+python -c "import json; [json.load(open(f)) for f in ['hosts/claude/.claude-plugin/plugin.json','hosts/codex/.codex-plugin/plugin.json','hosts/claude/hooks/hooks.json','schema/goalkeeper.contract.schema.json']]"
+for d in examples/*/; do (cd "$d" && python ../../bin/goalkeeper validate-contract --strict); done
+pytest -q
 ```
 
 CI (`.github/workflows/ci.yml`) runs these on Python 3.9, 3.11, and 3.12.
 
 ## Guidelines
 
-- **Stay dependency-free.** The CLI and hook must run on a clean Python 3 stdlib.
-  Don't add third-party imports (pytest is dev-only).
-- **Keep the hook un-crashable.** It must never raise into the host; wrap risky
-  work and exit `0` on failure. Add a test for any new event handling.
-- **Match the existing style** — module docstrings, small helpers, type hints
-  with `from __future__ import annotations`.
-- **Add tests** for any behavior change (the suite covers both the CLI and the
-  hook via subprocess). Update `docs/` and `CHANGELOG.md` when behavior changes.
-- **Don't commit `.goalkeeper/`** state or `__pycache__` (both are git-ignored).
+- **Stay dependency-free.** Core, the CLI, and the hook must run on a clean Python 3
+  stdlib. Don't add third-party imports (pytest is dev-only). Remote validators
+  degrade to "unavailable" rather than importing drivers — keep it that way.
+- **Keep the hook un-crashable.** It must never raise into the host; wrap risky work
+  and exit `0` on failure. Add a test for any new event handling.
+- **Match the existing style** — module docstrings, small helpers, type hints with
+  `from __future__ import annotations`.
+- **Add tests** for any behavior change. Update `docs/` and `CHANGELOG.md`.
+- **Don't commit runtime `.goalkeeper/`** state (git-ignored), except the curated
+  `examples/**/.goalkeeper/state.json` contracts.
 
 ### Common contributions
 
-- **Add a stack preset** (`detect`/`seed`): append to the `PRESETS` list in
-  `bin/goalkeeper` (marker files + test/build/typecheck/lint commands) and add a
-  `detect_stack` test.
+- **Add a validator type**: a handler under `goalkeeper_core/validators/`, register it
+  in `validators/__init__.py`, add it to the schema enum, and add a unit test.
+- **Add an adapter (domain)**: a module under `goalkeeper_core/adapters/` implementing
+  the `Adapter` interface, registered in `adapters/__init__.py`. See
+  [docs/adapters/WRITING_AN_ADAPTER.md](./docs/adapters/WRITING_AN_ADAPTER.md).
+- **Add a stack preset**: append to `PRESETS` in `goalkeeper_core/detect.py`.
 - **Add a destructive-command pattern**: extend `DESTRUCTIVE_PATTERNS` in
-  `bin/goalkeeper_hook.py` and add a `test_hook_blocks_*` case. Remember the
-  security model — this is a seatbelt, not a sandbox.
-- **Improve a skill**: edit the relevant `SKILL.md`; keep instructions concrete
-  and reference the CLI rather than embedding logic.
+  `bin/goalkeeper_hook.py` and add a `test_pretooluse_blocks_*` case.
 
 ## Reporting issues
 
-Open a GitHub issue with the host (Claude Code / Codex) and version, the command
-or event, and the observed vs expected behavior. For security concerns, see
+Open a GitHub issue with the host (Claude Code / Codex) and version, the command or
+event, and observed vs expected behavior. For security concerns, see
 [SECURITY.md](./SECURITY.md).
 
 By contributing you agree your contributions are licensed under the project's

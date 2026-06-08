@@ -11,9 +11,6 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.9", "3.11", "3.12"]
-    defaults:
-      run:
-        working-directory: goalkeeper-loop
     steps:
       - uses: actions/checkout@v4
 
@@ -25,15 +22,27 @@ jobs:
       - name: Install test deps
         run: pip install pytest
 
-      - name: Syntax-check Python helpers
-        run: python -m py_compile bin/goalkeeper bin/goalkeeper_hook.py
-
-      - name: Validate JSON manifests
+      - name: Byte-compile Goalkeeper Core + entrypoints
         run: |
-          for f in .claude-plugin/plugin.json .codex-plugin/plugin.json \
-                   hooks/hooks.json examples/marketplace.json; do
-            python -c "import json,sys; json.load(open('$f')); print('OK', '$f')"
+          python -m compileall -q goalkeeper_core
+          python -m py_compile bin/goalkeeper bin/goalkeeper_hook.py
+
+      - name: Validate JSON manifests + schema
+        run: |
+          for f in hosts/claude/.claude-plugin/plugin.json \
+                   hosts/codex/.codex-plugin/plugin.json \
+                   hosts/claude/hooks/hooks.json \
+                   hosts/codex/hooks/hooks.json \
+                   hosts/codex/marketplace.json \
+                   schema/goalkeeper.contract.schema.json; do
+            python -c "import json; json.load(open('$f')); print('OK', '$f')"
+          done
+
+      - name: Validate every example contract (strict)
+        run: |
+          for d in examples/*/; do
+            ( cd "$d" && python "$GITHUB_WORKSPACE/bin/goalkeeper" validate-contract --strict )
           done
 
       - name: Run test suite
-        run: python -m pytest -q tests/
+        run: python -m pytest -q

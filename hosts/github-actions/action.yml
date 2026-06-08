@@ -1,0 +1,41 @@
+name: "Goalkeeper Gate"
+description: "Fail the build unless the Goalkeeper contract is complete (all required validators pass, checkpoints have evidence, scope clean, approvals present)."
+branding:
+  icon: "shield"
+  color: "green"
+inputs:
+  working-directory:
+    description: "Directory containing .goalkeeper/"
+    required: false
+    default: "."
+outputs:
+  verdict:
+    description: "COMPLETE or INCOMPLETE"
+    value: ${{ steps.gate.outputs.verdict }}
+  tier:
+    description: "Completion tier N/6"
+    value: ${{ steps.gate.outputs.tier }}
+runs:
+  using: "composite"
+  steps:
+    - id: gate
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        GK="${GITHUB_ACTION_PATH}/../../bin/goalkeeper"
+        set +e
+        OUT="$(python "$GK" gate --ci)"
+        RC=$?
+        echo "$OUT"
+        VERDICT="$(printf '%s\n' "$OUT" | grep -oE 'GOALKEEPER_VERDICT=[A-Z]+' | cut -d= -f2)"
+        TIER="$(printf '%s\n' "$OUT" | grep -oE 'TIER=[0-9]+/6' | cut -d= -f2)"
+        echo "verdict=${VERDICT:-UNKNOWN}" >> "$GITHUB_OUTPUT"
+        echo "tier=${TIER:-0/6}" >> "$GITHUB_OUTPUT"
+        {
+          echo "## Goalkeeper verdict: ${VERDICT:-UNKNOWN}"
+          echo ""
+          echo "Completion tier: ${TIER:-0/6}"
+          echo ""
+          printf '%s\n' "$OUT" | grep -E '^::' | sed -E 's/^::([a-z_]+):: /- **\1**: /' || true
+        } >> "$GITHUB_STEP_SUMMARY"
+        exit $RC
