@@ -42,7 +42,7 @@ in the nearest ancestor `.goalkeeper/`.
 | `contract-diff` | Show whether the contract changed since lock. |
 | `split [--write-packets]` | Partition allowed scope into disjoint-write packets; write prompts to `agent_packets.md`. |
 | `packets list \| run ID \| reconcile` | List packets, scope one, or check combined diffs honored disjoint write-sets. |
-| `autocontinue on\|off\|reset [--max N]` | Toggle bounded Stop-hook auto-continue. |
+| `autocontinue on\|off\|reset [--max N]` | Toggle bounded Stop-hook auto-continue. Off by default; native `/goal` remains the preferred host workflow. |
 | `log "MSG"` | Append a line to `work_log.md`. |
 
 ## Install, host, smoke

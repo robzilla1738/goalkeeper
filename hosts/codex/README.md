@@ -32,3 +32,13 @@ Hook commands also honor `GOALKEEPER_HOOK` when you need to point at a specific
 - **Hooks** — `hooks/hooks.json` wires `bin/goalkeeper_hook.py`: contract
   injection, destructive/forbidden command blocking, and a gate-aware Stop
   (off by default).
+
+## Workflow
+
+`init --auto` or `adopt` → `doctor` → `render --format prompt` → `/goal` →
+`run`/`checkpoint` (record proof) → `gate` → `complete --accepted-by` → `proof`.
+
+Goalkeeper's Codex integration is strongest as a `/goal` contract/proof layer.
+It can cooperate with bounded Stop-hook continuation when explicitly enabled,
+but it should not be treated as a universal `/loop` wrapper. See
+[`/goal` and continuation](../../docs/concepts/GOAL_AND_LOOP.md).

@@ -11,7 +11,7 @@ never crashes the host. Every event is appended to `.goalkeeper/events.jsonl`.
 |-------|----------|
 | `SessionStart` / `UserPromptSubmit` / `SubagentStart` | Inject the active contract summary (objective, scope, validators, checkpoint progress, risk) as context. Inert when status is `complete`/`abandoned`. |
 | `PreToolUse` (Bash/shell) | Deny obvious destructive commands (`rm -rf /`, `git reset --hard`, `git clean -fd`, force-push, `mkfs`, `dd`, fork bomb, …) and commands referencing `scope.forbidden_resources`. |
-| `Stop` | **Gate-aware.** Only acts when `loop_runtime.autocontinue` is on. Calls `goalkeeper_core.loop.decide_stop`. |
+| `Stop` | **Gate-aware and optional.** Only acts when `loop_runtime.autocontinue` is on. Calls `goalkeeper_core.loop.decide_stop`. |
 
 ## Gate-aware Stop
 
@@ -26,7 +26,8 @@ never crashes the host. Every event is appended to `.goalkeeper/events.jsonl`.
   host to continue (bounded by `loop.max_turns`), naming the open blockers.
 
 See [LOOP_MODES](./concepts/LOOP_MODES.md) for per-mode behavior. Auto-continue is
-**off by default** — native `/goal` is the preferred loop.
+**off by default** — native `/goal` is the preferred loop. Goalkeeper can
+cooperate with host continuation, but it is not a universal `/loop` wrapper.
 
 ## Security model
 

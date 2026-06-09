@@ -26,9 +26,9 @@ a measurable contract — do not act on it literally yet.
 ## Principle
 
 Don't build a raw infinite loop. Both Claude Code and Codex have first-party
-continuation (`/goal`). Your job is the layer above it: define **objective, scope,
-typed validators, risk, loop mode, and a completion gate** so completion is proven,
-not claimed.
+goal execution. Your job is the layer above it: define **objective, scope,
+typed validators, risk, loop mode, and a completion gate**, then emit a native
+`/goal` handoff so completion is proven, not claimed.
 
 ## Workflow
 

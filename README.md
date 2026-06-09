@@ -57,12 +57,18 @@ Contract → Work → Evidence → Verification → Audit → Accept / Review
         │  the model runs the goalkeeper CLI to write the v2 contract
   .goalkeeper/  →  state.json (canonical) · goal.md (generated) · runs.jsonl · proof.md
         │  goalkeeper doctor (gate) → render --format prompt
-  /goal <objective + scope + proof + constraints + stop-budget>   ← native loop
-        │  the host loops the agent; the hook injects the contract every turn
-        │  and blocks destructive / out-of-scope commands
+  /goal <objective + scope + proof + constraints>   ← primary host workflow
+        │  the host works the goal; hooks inject the contract and block
+        │  obvious destructive / out-of-scope shell commands
         ▼
   goalkeeper run → goalkeeper gate → complete → proof   (PASS only with evidence)
 ```
+
+Goalkeeper's primary integration is native `/goal`: it renders a prompt the host
+can run, then verifies completion independently. It does **not** depend on a
+separate `/loop` command. Optional Stop-hook auto-continue can ask the host to
+continue while gate blockers remain, but it is off by default and bounded by the
+contract's turn budget. See [`/goal` and continuation](./docs/concepts/GOAL_AND_LOOP.md).
 
 ## Quick start
 
@@ -91,7 +97,7 @@ proves the end-to-end gate flow in a disposable repo.
 
 ## Documentation
 
-- [Architecture](./docs/concepts/ARCHITECTURE.md) · [Goal Contract v2](./docs/concepts/GOAL_CONTRACT.md)
+- [Architecture](./docs/concepts/ARCHITECTURE.md) · [`/goal` and continuation](./docs/concepts/GOAL_AND_LOOP.md) · [Goal Contract v2](./docs/concepts/GOAL_CONTRACT.md)
 - [Verifier tiers](./docs/concepts/VERIFIER_TIERS.md) · [Loop modes](./docs/concepts/LOOP_MODES.md)
 - [Contract schema reference](./docs/schemas/CONTRACT_V2.md) · [Writing an adapter](./docs/adapters/WRITING_AN_ADAPTER.md)
 - [Risk & approvals](./docs/security/RISK_AND_APPROVALS.md) · [CLI](./docs/CLI.md) · [Hooks](./docs/HOOKS.md)

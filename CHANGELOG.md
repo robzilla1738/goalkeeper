@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Clarified the host integration model: native `/goal` is the primary workflow;
+  Stop-hook auto-continue is optional, bounded, and not a universal `/loop`
+  wrapper.
+
 ## 0.4.0 — Local-agent hardening — 2026-06-08
 
 - `gate` now enforces shared contract-quality checks, so draft, vague,

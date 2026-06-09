@@ -31,6 +31,10 @@ Claude Code **v2.1.139+**.
 
 ## Workflow
 
-`init --template` → `set`/`checkpoint` → `doctor` → `render --format prompt` →
-`/goal` → `run`/`checkpoint` (record proof) → `gate` → `complete --accepted-by` →
-`proof`. See the [top-level README](../../README.md) and [docs](../../docs).
+`init --auto` or `adopt` → `doctor` → `render --format prompt` → `/goal` →
+`run`/`checkpoint` (record proof) → `gate` → `complete --accepted-by` → `proof`.
+
+Goalkeeper is not a replacement for Claude Code continuation. It generates the
+contract and `/goal` handoff, then verifies the result. Stop-hook
+auto-continue is optional and off by default. See
+[`/goal` and continuation](../../docs/concepts/GOAL_AND_LOOP.md).

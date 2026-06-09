@@ -33,8 +33,8 @@ Contract → Work → Evidence → Verification → Audit → Accept / Review
   goalkeeper adopt …              (alternative: scope a contract around current diff)
   goalkeeper set / checkpoint …   (shape scope, validators, risk, loop)
   goalkeeper doctor               (GATE: reject vague/invalid contracts)
-  goalkeeper render --format prompt → /goal …      (hand to the host loop)
-        │  host loops the agent; the hook injects the contract + blocks bad cmds
+  goalkeeper render --format prompt → /goal …      (hand to the primary host workflow)
+        │  host works the goal; hooks inject the contract + block bad shell cmds
         ▼
   goalkeeper run "<validation>"   (records exit/duration + bounded output artifacts)
   goalkeeper checkpoint --met …   (records evidence)

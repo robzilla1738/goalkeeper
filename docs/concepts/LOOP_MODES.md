@@ -1,8 +1,15 @@
 # Loop modes
 
-`loop.mode` tells the Stop hook how to drive the work. The hook reuses the
-completion **gate**, so it never lets the agent stop while required blockers
-remain (and budget is left), and never pushes past a passing gate.
+`loop.mode` tells the optional Stop hook how to drive continuation after a host
+turn. Native `/goal` is the primary workflow; Stop-hook continuation is a
+bounded assist for hosts that expose a compatible Stop event. The hook reuses
+the completion **gate**, so it never pushes past a passing gate.
+
+Auto-continue is off by default. Enable it explicitly:
+
+```bash
+goalkeeper autocontinue on --max 5
+```
 
 | Mode | Continue while incomplete | Done (stop) | Pause |
 |------|---------------------------|-------------|-------|
@@ -26,3 +33,6 @@ For `scheduled_recurring` and long `watch_until_event`, the hook **pauses** rath
 than busy-looping. Re-invocation is owned by the host — Codex automations, a cron
 job running `goalkeeper gate --ci`, or the [GitHub gate workflow](../../hosts/github-actions/goalkeeper-gate.yml).
 Goalkeeper integrates with host continuation instead of reinventing scheduling.
+
+See [`/goal` and continuation](./GOAL_AND_LOOP.md) for the practical host
+integration model and the limits of `/loop`-style behavior.
