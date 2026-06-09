@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 
-from tests.conftest import REPO_ROOT, load_state, run_cli
+from tests.conftest import REPO_ROOT, load_state, run_cli, run_hook
 
 
 def test_init_template_is_valid(repo):
@@ -96,6 +96,42 @@ def test_gate_complete_proof_lifecycle(repo):
     assert load_state(repo)["completion"]["status"] == "complete"
     assert (repo / ".goalkeeper" / "proof.md").exists()
     assert (repo / ".goalkeeper" / "proof.json").exists()
+
+
+def _active_command_contract(repo):
+    run_cli(repo, "init", "-o", "Validate the change under src")
+    run_cli(repo, "set", "scope.allowed_resources", "**")
+    s = load_state(repo)
+    s["validators"] = [{"id": "ok", "type": "command", "command": "true",
+                        "pass_condition": "exit_zero", "required": True}]
+    s["checkpoints"] = [{"id": "cp1", "description": "done", "evidence_required": "x",
+                         "status": "met", "evidence": "e"}]
+    (repo / ".goalkeeper" / "state.json").write_text(json.dumps(s, indent=2))
+    run_cli(repo, "set", "completion.status", "active")
+
+
+def test_gate_rerun_earns_tier_four(repo):
+    _active_command_contract(repo)
+    # A normal recorded run proves tier 3 (deterministic), not 4.
+    run_cli(repo, "run", "true")
+    g3 = json.loads(run_cli(repo, "gate", "--json").stdout)
+    assert g3["verdict"] == "COMPLETE" and g3["tier"] == 3
+    # --rerun re-executes the validator from a clean state and tags it -> tier 4.
+    g4 = json.loads(run_cli(repo, "gate", "--rerun", "--json").stdout)
+    assert g4["verdict"] == "COMPLETE" and g4["tier"] == 4
+
+
+def test_posttooluse_autocapture_satisfies_gate(repo):
+    _active_command_contract(repo)
+    # Before any evidence the required command validator is inconclusive.
+    g0 = json.loads(run_cli(repo, "gate", "--json").stdout)
+    assert any(b["code"] == "validator_inconclusive" for b in g0["blockers"])
+    # The hook auto-captures a bare command run (no `goalkeeper run` needed).
+    run_hook(repo, {"hook_event_name": "PostToolUse", "tool_name": "Bash",
+                    "tool_input": {"command": "true"},
+                    "tool_response": {"exit_code": 0}, "cwd": str(repo)})
+    g1 = json.loads(run_cli(repo, "gate", "--json").stdout)
+    assert g1["verdict"] == "COMPLETE"
 
 
 def test_run_captures_bounded_output_artifacts(repo, monkeypatch):
@@ -262,6 +298,15 @@ def test_codex_host_does_not_reference_claude_plugin_root():
             assert "CLAUDE_PLUGIN_ROOT" not in path.read_text(encoding="utf-8")
 
 
+def test_host_bin_copies_match_canonical():
+    # bin/ entrypoints are vendored byte-for-byte into each host; guard the drift.
+    for name in ("goalkeeper", "goalkeeper_hook.py"):
+        canonical = (REPO_ROOT / "bin" / name).read_bytes()
+        for host in ("claude", "codex"):
+            copy = (REPO_ROOT / "hosts" / host / "bin" / name).read_bytes()
+            assert copy == canonical, f"hosts/{host}/bin/{name} drifted from bin/{name}; re-copy it"
+
+
 def test_install_dry_run_json_uses_env_targets(repo, tmp_path, monkeypatch):
     monkeypatch.setenv("GOALKEEPER_INSTALL_BIN_DIR", str(tmp_path / "bin"))
     r = run_cli(repo, "install", "shell", "--dry-run", "--json")
@@ -279,6 +324,14 @@ def test_host_doctor_json_shape(repo):
     data = json.loads(r.stdout)
     assert "checks" in data
     assert any(c["name"] == "python" for c in data["checks"])
+
+
+def test_host_doctor_codex_surfaces_version_and_trust(repo):
+    r = run_cli(repo, "host", "doctor", "codex", "--json")
+    assert r.returncode in (0, 2)
+    names = {c["name"] for c in json.loads(r.stdout)["checks"]}
+    assert "codex_version" in names
+    assert "codex_hooks_trust" in names
 
 
 def test_smoke_core_passes(repo):

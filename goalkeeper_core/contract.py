@@ -57,6 +57,15 @@ def default_contract(objective: str = "", domain: str = "code", root: Path | Non
             "max_turns": 12,
             "max_wall_time_minutes": 60,
             "max_cost_usd": 5.0,
+            # enforce: when true and the goal is active, the Stop hook holds the
+            # turn open (bounded by max_turns) until the gate passes -- this is
+            # what makes "done" non-bypassable. Off in the bare skeleton; the
+            # templates and init --auto/adopt turn it on for real gated work.
+            "enforce": False,
+            # auto_complete: on a passing gate, record completion + proof
+            # automatically. Suppressed at runtime for human-gated contracts
+            # (see loop.requires_human_signoff), which pause for a named human.
+            "auto_complete": True,
             "stop_when": ["all_required_validators_pass", "all_checkpoints_met"],
             "pause_when": [
                 "needs_credentials",

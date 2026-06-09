@@ -28,7 +28,10 @@ class CommandValidator(Validator):
         exit_code = int(run.get("exit", 1))
         cond = spec.get("pass_condition", "exit_zero")
         passed = _check_exit(cond, exit_code)
-        tier = 4 if params.get("independent_rerun") else self.tier_on_pass
+        # Tier 4 ("independent re-run") is earned only by an actual fresh run
+        # recorded by `goalkeeper gate --rerun` -- never asserted from a stale
+        # ledger entry. A normal recorded run proves tier 3 (deterministic).
+        tier = 4 if run.get("rerun") else self.tier_on_pass
         detail = {
             "exit": exit_code,
             "run": {k: run.get(k) for k in (

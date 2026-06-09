@@ -1,9 +1,10 @@
 """Evidence ledgers: runs.jsonl, events.jsonl, work_log.md.
 
-These are the authoritative records the verifier trusts. `run` records a real
-exit code (PostToolUse hooks cannot dependably capture exit codes, and don't
-fire for non-Bash tools in Codex), so `runs.jsonl` is the source of truth that
-the command validator and gate read.
+These are the authoritative records the verifier trusts. `goalkeeper run` (and
+`gate --rerun`) record a real exit code, so `runs.jsonl` is the source of truth
+the command validator and gate read. PostToolUse hooks also auto-capture
+commands, but only when the host surfaces a reliable exit code — when it doesn't,
+the hook records nothing rather than fabricate a pass/fail.
 """
 from __future__ import annotations
 
@@ -85,9 +86,19 @@ def _write_artifact(root: Path, run_id: str, stream: str, data: bytes, truncated
     return f".goalkeeper/{rel}"
 
 
-def run_command(cmd: str, root: Path | None = None) -> int:
-    """Execute a validation command, stream output, and record bounded proof."""
+def run_command(cmd: str, root: Path | None = None, record_extra: dict | None = None,
+                out_stream=None, err_stream=None) -> int:
+    """Execute a validation command, stream output, and record bounded proof.
+
+    `record_extra` adds fields to the runs.jsonl record (e.g. {"rerun": True}
+    when `goalkeeper gate --rerun` re-executes a validator from a clean state).
+    `out_stream`/`err_stream` override where live output is mirrored (default
+    sys.stdout/stderr) -- the MCP server points these at /dev/null so subprocess
+    output never corrupts its JSON-RPC channel. Captured artifacts are unaffected.
+    """
     root = root or find_root()
+    out_dest = out_stream if out_stream is not None else sys.stdout.buffer
+    err_dest = err_stream if err_stream is not None else sys.stderr.buffer
     limit = _output_limit()
     run_id = uuid.uuid4().hex[:12]
     start = time.monotonic()
@@ -105,12 +116,12 @@ def run_command(cmd: str, root: Path | None = None) -> int:
     assert proc.stderr is not None
     out_thread = threading.Thread(
         target=_pump,
-        args=(proc.stdout, sys.stdout.buffer, stdout, limit, truncated, "stdout"),
+        args=(proc.stdout, out_dest, stdout, limit, truncated, "stdout"),
         daemon=True,
     )
     err_thread = threading.Thread(
         target=_pump,
-        args=(proc.stderr, sys.stderr.buffer, stderr, limit, truncated, "stderr"),
+        args=(proc.stderr, err_dest, stderr, limit, truncated, "stderr"),
         daemon=True,
     )
     out_thread.start()
@@ -133,6 +144,7 @@ def run_command(cmd: str, root: Path | None = None) -> int:
         stdout_truncated=truncated["stdout"],
         stderr_truncated=truncated["stderr"],
         output_limit_bytes=limit,
+        **(record_extra or {}),
     )
     return exit_code
 

@@ -38,36 +38,40 @@ Goalkeeper does not require a separate `/loop` command. Host-level loops and
 continuation features can be useful, but Goalkeeper's contract and gate are the
 source of truth.
 
-The optional Stop-hook continuation is controlled by:
+Stop-hook enforcement is **on by default for gated work** — templates and
+`init --auto`/`adopt` set `loop.enforce: true`. Toggle or re-bound it with:
 
 ```bash
-goalkeeper autocontinue on --max 5
+goalkeeper autocontinue on --max 5    # enforce + raise the turn budget
+goalkeeper autocontinue off           # kill switch (clears loop.enforce)
 ```
 
-When enabled, the Stop hook runs the gate:
+When enforced, the Stop hook runs the gate:
 
-- if the gate passes, it stops;
+- if the gate passes, it closes the loop — recording completion + proof
+  automatically (`accepted_by: auto:goalkeeper`), or prompting for a named human
+  on a human-gated contract;
 - if local, agent-solvable blockers remain and turn budget remains, it asks the
   host to continue;
 - if human approval, credentials, unavailable validators, or budget exhaustion
   are involved, it pauses.
 
-Auto-continue is **off by default** because native `/goal` is the cleaner first
-path. Treat Stop-hook continuation as a bounded assist, not as a promise that
-every host `/loop` implementation will behave identically.
+`GOALKEEPER_NO_STOP=1` disables enforcement entirely regardless of contract.
 
 ## What is seamless today
 
 - `goalkeeper render --format prompt` creates a native `/goal` handoff.
 - Hook context injection keeps the active contract visible to the host.
 - Bash/shell hooks block obvious destructive commands and forbidden resources.
+- Write tools (`Edit`/`Write`, Codex `apply_patch`) are denied outside scope.
+- `PostToolUse` auto-records commands as evidence; `gate --rerun` earns tier 4.
+- The Stop gate holds the turn open until the gate passes, then auto-completes
+  (or pauses for a named human) — exercised end-to-end in the hook test suite.
 - `goalkeeper run`, `gate`, `complete`, and `proof` are host-independent.
-- `goalkeeper smoke core` and `goalkeeper smoke codex` verify the local proof
-  flow and Codex hook-denial path.
+- `goalkeeper smoke core`/`smoke codex` verify the local proof + hook-denial paths.
 
 ## What still needs live-session proof
 
-- Long multi-turn Claude Code/Codex sessions using plugin skills plus Stop-hook
-  continuation.
-- Host-specific `/loop` behavior. Goalkeeper can cooperate with continuation,
-  but it should not be documented as a universal `/loop` wrapper.
+- A long real Claude Code/Codex session with plugin-skill invocation (the
+  in-process hook loop is covered by tests; a live multi-turn run is the
+  remaining unknown). On Codex, complete the one-time `/hooks` trust first.

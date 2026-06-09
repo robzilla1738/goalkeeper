@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "goalkeeper": {
+      "command": "goalkeeper",
+      "args": ["mcp"]
+    }
+  }
+}

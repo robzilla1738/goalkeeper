@@ -80,6 +80,9 @@ def build_from_template(name: str, objective: str = "", root=None) -> dict:
     state = default_contract(objective, domain=domain, root=root)
     _deep_merge(state, get_adapter(domain).default_template())
     _deep_merge(state, overlay)
+    # Templates represent real gated work: enforce the Stop gate by default so
+    # the agent cannot end the turn claiming done before the gate passes.
+    state["loop"]["enforce"] = True
     return state
 
 

@@ -14,6 +14,7 @@ from .evaluation import (
     forbidden_hits,
     scope_drift,
 )
+from .clock import now
 from .quality import failed_quality_blockers
 from .risk import risk_blockers
 from .tiers import compute_tier
@@ -85,3 +86,20 @@ def evaluate_gate(state: dict, root: Path, base_override: str | None = None) -> 
         "results": results,
         "changed": changed,
     }
+
+
+def finalize(state: dict, root: Path, accepted_by: str) -> dict | None:
+    """Record completion IFF the gate passes. The single writer of
+    completion.status == "complete" (shared by `goalkeeper complete` and the
+    Stop hook's auto-complete). Mutates `state` in place; the caller persists it
+    and writes the proof bundle. Returns the passing gate dict, or None if the
+    gate is not COMPLETE (in which case state is left untouched).
+    """
+    g = evaluate_gate(state, root)
+    if g["verdict"] != "COMPLETE":
+        return None
+    completion = state.setdefault("completion", {})
+    completion["status"] = "complete"
+    completion["accepted_by"] = accepted_by
+    completion["completed_at"] = now()
+    return g

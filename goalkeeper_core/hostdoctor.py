@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -57,7 +58,45 @@ def _host_checks(target: str, root: Path) -> list[dict]:
     binary = shutil.which("claude" if target == "claude" else "codex")
     checks.append(_check(f"{target}_binary", binary is not None, binary or "missing", severity="warning",
                          fix=f"install {'Claude Code' if target == 'claude' else 'Codex'} or skip this host"))
+    if target == "codex":
+        checks.append(_codex_version_check())
+        checks.append(_check(
+            "codex_hooks_trust", True,
+            "non-managed hooks require a one-time `/hooks` trust in Codex (re-trust after edits); "
+            "teams can ship managed hooks via requirements.toml [hooks]",
+            severity="warning"))
     return checks
+
+
+def _codex_version_check() -> dict:
+    """Surface the Codex version + hooks requirements. Codex hooks went GA in
+    2026; pin a floor with GOALKEEPER_CODEX_MIN_VERSION to fail on older builds."""
+    codex = shutil.which("codex")
+    if not codex:
+        return _check("codex_version", True, "codex not installed; skipping version check", severity="warning")
+    ver = None
+    try:
+        out = subprocess.run([codex, "--version"], capture_output=True, text=True, timeout=10, check=False)
+        ver = _parse_semver(f"{out.stdout} {out.stderr}")
+    except (OSError, subprocess.SubprocessError):
+        ver = None
+    minimum = os.environ.get("GOALKEEPER_CODEX_MIN_VERSION", "").strip()
+    if minimum and ver and _semver_tuple(ver) < _semver_tuple(minimum):
+        return _check("codex_version", False, f"codex {ver} < required {minimum}",
+                      severity="warning", fix=f"upgrade Codex to >= {minimum} (hooks GA 2026)")
+    return _check("codex_version", True,
+                  f"codex {ver or '?'}; hooks need a recent Codex (GA 2026) + one-time `/hooks` trust",
+                  severity="warning")
+
+
+def _parse_semver(text: str) -> str | None:
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", text)
+    return m.group(0) if m else None
+
+
+def _semver_tuple(v: str) -> tuple[int, ...]:
+    parts = re.findall(r"\d+", v)[:3]
+    return tuple(int(p) for p in parts) + (0,) * (3 - len(parts))
 
 
 def _manifest_checks(target: str, source: Path) -> list[dict]:

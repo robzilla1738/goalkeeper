@@ -39,6 +39,22 @@ HUMAN_PAUSE_MODES = {"human_review_loop"}
 class StopDecision:
     action: str   # "stop" | "pause" | "continue"
     reason: str
+    gate: dict | None = None   # the gate verdict this decision was based on (if any)
+
+
+def requires_human_signoff(state: dict) -> bool:
+    """True if completion must be accepted by a named human, not auto-recorded.
+
+    High/critical risk, an explicit human_approval/rubric required validator, or
+    a human_review_loop mode all mean a person owns the final acceptance.
+    """
+    risk = state.get("risk", {})
+    if isinstance(risk, dict) and risk.get("level") in ("high", "critical"):
+        return True
+    for v in state.get("validators", []):
+        if isinstance(v, dict) and v.get("required") and v.get("type") in ("human_approval", "rubric"):
+            return True
+    return state.get("loop", {}).get("mode") in HUMAN_PAUSE_MODES
 
 
 def decide_stop(state: dict, root: Path) -> StopDecision:
@@ -48,7 +64,7 @@ def decide_stop(state: dict, root: Path) -> StopDecision:
 
     g = evaluate_gate(state, root)
     if g["verdict"] == "COMPLETE":
-        return StopDecision("stop", f"gate passed (tier {g['tier']}/6); goal complete")
+        return StopDecision("stop", f"gate passed (tier {g['tier']}/6); goal complete", gate=g)
 
     mode = state.get("loop", {}).get("mode", "goal_until_pass")
     blockers = g["blockers"]
@@ -56,20 +72,20 @@ def decide_stop(state: dict, root: Path) -> StopDecision:
 
     # Pause when any blocker needs human/host intervention, or the mode is human-gated.
     if codes & PAUSE_BLOCKERS or mode in HUMAN_PAUSE_MODES:
-        return StopDecision("pause", _pause_reason(mode, blockers))
+        return StopDecision("pause", _pause_reason(mode, blockers), gate=g)
 
     if mode in SCHEDULER_MODES:
-        return StopDecision("pause", "scheduled_recurring: one cycle done; re-armed by the host scheduler")
+        return StopDecision("pause", "scheduled_recurring: one cycle done; re-armed by the host scheduler", gate=g)
 
     # Budget check (turn budget is always enforced; wall/cost only if host supplies them).
     rt = state.get("loop_runtime", {})
     used = int(rt.get("autocontinue_turns_used", 0))
     budget = int(state.get("loop", {}).get("max_turns", 0))
     if used >= budget:
-        return StopDecision("pause", f"turn budget exhausted ({used}/{budget}); pausing for review")
+        return StopDecision("pause", f"turn budget exhausted ({used}/{budget}); pausing for review", gate=g)
 
     open_items = "; ".join(f"{c}: {d}" for c, d in blockers[:6]) or "see gate"
-    return StopDecision("continue", _continue_reason(mode, open_items))
+    return StopDecision("continue", _continue_reason(mode, open_items), gate=g)
 
 
 def _pause_reason(mode: str, blockers: list[tuple[str, str]]) -> str:

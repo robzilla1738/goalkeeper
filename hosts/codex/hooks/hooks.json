@@ -39,6 +39,26 @@
             "command": "python3 \"${GOALKEEPER_HOOK:-${GOALKEEPER_CORE_HOME:-${CODEX_PLUGIN_ROOT:-.}}/bin/goalkeeper_hook.py}\""
           }
         ]
+      },
+      {
+        "matcher": "apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${GOALKEEPER_HOOK:-${GOALKEEPER_CORE_HOME:-${CODEX_PLUGIN_ROOT:-.}}/bin/goalkeeper_hook.py}\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${GOALKEEPER_HOOK:-${GOALKEEPER_CORE_HOME:-${CODEX_PLUGIN_ROOT:-.}}/bin/goalkeeper_hook.py}\""
+          }
+        ]
       }
     ],
     "Stop": [

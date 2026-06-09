@@ -20,6 +20,9 @@ def smoke(target: str = "core") -> dict:
         if target in ("claude", "codex"):
             result["hook"] = _host_hook_smoke(target, root)
             result["ok"] = result["ok"] and result["hook"]["ok"]
+        if target == "codex":
+            result["note"] = ("Codex runs non-managed hooks only after a one-time `/hooks` trust "
+                              "(re-trust after edits); use a recent Codex (hooks GA 2026).")
         result["target"] = target
         return result
 

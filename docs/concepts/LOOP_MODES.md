@@ -1,14 +1,14 @@
 # Loop modes
 
-`loop.mode` tells the optional Stop hook how to drive continuation after a host
-turn. Native `/goal` is the primary workflow; Stop-hook continuation is a
-bounded assist for hosts that expose a compatible Stop event. The hook reuses
-the completion **gate**, so it never pushes past a passing gate.
+`loop.mode` tells the Stop hook how to drive continuation after a host turn. The
+hook reuses the completion **gate**, so it never pushes past a passing gate.
 
-Auto-continue is off by default. Enable it explicitly:
+Enforcement is on by default for gated work (templates and `init --auto`/`adopt`
+set `loop.enforce: true`). Re-bound or disable it:
 
 ```bash
-goalkeeper autocontinue on --max 5
+goalkeeper autocontinue on --max 5    # raise the per-contract turn budget
+goalkeeper autocontinue off           # kill switch (or GOALKEEPER_NO_STOP=1)
 ```
 
 | Mode | Continue while incomplete | Done (stop) | Pause |

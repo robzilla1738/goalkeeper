@@ -89,5 +89,7 @@ Show the generated `/goal` to the user. `goal.md` is generated — never hand-ed
   done-state, a stop budget, and at least one required validator.
 - `completion.status=complete` is set ONLY by `goalkeeper complete` after `gate`
   passes — never with `set`.
-- Prefer native `/goal` over the optional Stop-hook auto-continue (off by default).
+- The Stop hook enforces the gate by default for gated contracts (templates /
+  `init --auto`): the turn is held open until the gate passes, bounded by
+  `loop.max_turns`. Disable with `goalkeeper autocontinue off` / `GOALKEEPER_NO_STOP=1`.
 - Do not start implementing in this skill — set up the contract and hand off.

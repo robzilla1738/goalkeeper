@@ -69,6 +69,8 @@
         "max_turns": {"type": "integer", "minimum": 1},
         "max_wall_time_minutes": {"type": "number", "minimum": 0},
         "max_cost_usd": {"type": "number", "minimum": 0},
+        "enforce": {"type": "boolean", "description": "Stop hook holds the turn open until the gate passes."},
+        "auto_complete": {"type": "boolean", "description": "On a passing gate, record completion + proof automatically (suppressed for human-gated contracts)."},
         "stop_when": {"type": "array", "items": {"type": "string"}},
         "pause_when": {"type": "array", "items": {"type": "string"}}
       }

@@ -329,9 +329,28 @@ def cmd_score(args: argparse.Namespace) -> int:
     return 0 if g["verdict"] == "COMPLETE" else 2
 
 
+def _rerun_required_commands(state: dict, root: Path) -> list[str]:
+    """Re-execute every required `command` validator from a clean state, tagging
+    each run so it can legitimately prove tier 4 (independent re-run)."""
+    rerun: list[str] = []
+    for v in state.get("validators", []):
+        if not isinstance(v, dict):
+            continue
+        if v.get("required") and v.get("type") == "command" and v.get("command"):
+            print(f"[goalkeeper] re-running: {v['command']}", file=sys.stderr)
+            run_command(v["command"], root, record_extra={"rerun": True})
+            rerun.append(v["command"])
+    return rerun
+
+
 def cmd_gate(args: argparse.Namespace) -> int:
     state = _need_state()
-    g = gate_mod.evaluate_gate(state, find_root())
+    root = find_root()
+    if getattr(args, "rerun", False):
+        ran = _rerun_required_commands(state, root)
+        if not ran:
+            print("[goalkeeper] --rerun: no required command validators to re-run", file=sys.stderr)
+    g = gate_mod.evaluate_gate(state, root)
     if args.json:
         print(json.dumps({"verdict": g["verdict"], "tier": g["tier"],
                           "blockers": [{"code": c, "detail": d} for c, d in g["blockers"]]}, indent=2))
@@ -358,10 +377,9 @@ def cmd_complete(args: argparse.Namespace) -> int:
         return 2
     if not args.accepted_by:
         return _die("--accepted-by NAME is required to accept completion")
-    from .clock import now
-    state["completion"]["status"] = "complete"
-    state["completion"]["accepted_by"] = args.accepted_by
-    state["completion"]["completed_at"] = now()
+    g = gate_mod.finalize(state, root, args.accepted_by)
+    if g is None:  # gate flipped between check and write; refuse to record
+        return _die("gate no longer passes; re-run `goalkeeper gate`", code=2)
     save_state(state)
     proof_mod.write_bundle(state, root, fmt="both")
     print(f"Goal marked complete (tier {g['tier']}/6). Proof bundle: .goalkeeper/proof.md")
@@ -468,6 +486,12 @@ def cmd_autocontinue(args: argparse.Namespace) -> int:
     state = _need_state()
     rt = state.setdefault("loop_runtime", {})
     rt["autocontinue"] = args.action == "on"
+    # autocontinue is the explicit on/off switch for the Stop-hook gate: turning
+    # it on enforces continuation; off is the kill switch (also clears loop.enforce).
+    if args.action == "on":
+        set_path(state, "loop.enforce", True)
+    elif args.action == "off":
+        set_path(state, "loop.enforce", False)
     if args.max is not None:
         rt["max_autocontinue_turns"] = args.max
         set_path(state, "loop.max_turns", args.max)
@@ -475,6 +499,7 @@ def cmd_autocontinue(args: argparse.Namespace) -> int:
         rt["autocontinue_turns_used"] = 0
     save_state(state)
     print(f"autocontinue {'on' if rt['autocontinue'] else 'off'}; "
+          f"enforce {state.get('loop', {}).get('enforce')}; "
           f"budget {rt.get('max_autocontinue_turns')} turns, {rt.get('autocontinue_turns_used', 0)} used")
     return 0
 
@@ -483,6 +508,11 @@ def cmd_log(args: argparse.Namespace) -> int:
     ledger_log(args.message)
     print("logged.")
     return 0
+
+
+def cmd_mcp(args: argparse.Namespace) -> int:
+    from . import mcp as mcp_mod
+    return mcp_mod.serve()
 
 
 def cmd_install(args: argparse.Namespace) -> int:
@@ -535,6 +565,8 @@ def cmd_smoke(args: argparse.Namespace) -> int:
         print(f"  gate after evidence : {after}")
         if result.get("hook"):
             print(f"  hook deny check     : {'PASS' if result['hook']['ok'] else 'FAIL'}")
+        if result.get("note"):
+            print(f"  note                : {result['note']}")
     return 0 if result["ok"] else 2
 
 
@@ -671,6 +703,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     pg = sub.add_parser("gate", help="exit 0 only when the contract is complete")
     pg.add_argument("--ci", action="store_true"); pg.add_argument("--json", action="store_true")
+    pg.add_argument("--rerun", action="store_true",
+                    help="re-execute required command validators from a clean state (earns tier 4)")
     pg.set_defaults(func=cmd_gate)
 
     pcomp = sub.add_parser("complete", help="mark complete (only after gate passes)")
@@ -703,6 +737,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     pl = sub.add_parser("log", help="append a line to work_log.md")
     pl.add_argument("message"); pl.set_defaults(func=cmd_log)
+
+    sub.add_parser("mcp", help="run the stdio MCP server (gate/run/checkpoint/complete tools)").set_defaults(func=cmd_mcp)
 
     pins = sub.add_parser("install", help="install Goalkeeper shell/host entrypoints")
     pins.add_argument("target", choices=["shell", "claude", "codex", "all"])

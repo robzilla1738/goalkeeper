@@ -70,7 +70,12 @@ LIST_FIELDS = {
 }
 INT_FIELDS = {"loop.max_turns", "loop.max_wall_time_minutes"}
 FLOAT_FIELDS = {"loop.max_cost_usd"}
-BOOL_FIELDS = {"risk.external_side_effects", "loop_runtime.autocontinue"}
+BOOL_FIELDS = {
+    "risk.external_side_effects",
+    "loop_runtime.autocontinue",
+    "loop.enforce",
+    "loop.auto_complete",
+}
 
 
 def coerce(dotted: str, raw: str) -> Any:

@@ -22,19 +22,25 @@ Claude Code **v2.1.139+**.
 
 ## Contents
 
-- **Skills** — `goalkeeper` (author a v2 contract + emit `/goal`), `goalkeeper-split`
-  (disjoint subagent packets), `goalkeeper-audit` (verify + gate before "done").
-- **Agents** — `goalkeeper-researcher` (read-only), `goalkeeper-implementer`
-  (scoped write), `goalkeeper-verifier` (read-only).
-- **Hooks** — `hooks/hooks.json` wires `bin/goalkeeper_hook.py`: contract injection,
-  destructive/forbidden command blocking, and a gate-aware Stop (off by default).
+**Skills:** `goalkeeper` (author a v2 contract and emit `/goal`),
+`goalkeeper-split` (disjoint subagent packets), `goalkeeper-audit` (verify and
+gate before "done").
+
+**Agents:** `goalkeeper-researcher` (read-only), `goalkeeper-implementer`
+(scoped write), `goalkeeper-verifier` (read-only).
+
+**Hooks** (`hooks/hooks.json` wires `bin/goalkeeper_hook.py`): contract
+injection, destructive/forbidden command blocking, write-boundary scope denial
+on `Edit`/`Write`, `PostToolUse` evidence capture, and a gate-aware `Stop` that
+enforces by default for gated contracts. Kill switch: `goalkeeper autocontinue
+off` or `GOALKEEPER_NO_STOP=1`.
 
 ## Workflow
 
 `init --auto` or `adopt` → `doctor` → `render --format prompt` → `/goal` →
 `run`/`checkpoint` (record proof) → `gate` → `complete --accepted-by` → `proof`.
 
-Goalkeeper is not a replacement for Claude Code continuation. It generates the
-contract and `/goal` handoff, then verifies the result. Stop-hook
-auto-continue is optional and off by default. See
-[`/goal` and continuation](../../docs/concepts/GOAL_AND_LOOP.md).
+Goalkeeper writes the contract and the `/goal` handoff, then makes "done"
+non-bypassable: for an enforced contract the Stop hook holds the turn open until
+the gate passes, then records completion and the proof bundle automatically (or
+pauses for a named human). See [`/goal` and continuation](../../docs/concepts/GOAL_AND_LOOP.md).

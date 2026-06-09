@@ -115,13 +115,27 @@ Stop hook; contract lock/amendments; packet executor; templates; adapters
 isolated smoke checks; render (goal.md generated); hosts for
 claude/codex/github-actions/shell; rewritten docs/skills/tests; runnable examples.
 
+**Done (non-bypassable gate work):** Stop-hook enforcement on by default for gated
+contracts (`loop.enforce`, kill switch `GOALKEEPER_NO_STOP`/`autocontinue off`);
+auto-complete + proof on a passing gate, with `requires_human_signoff` pausing for a
+named accepter (`gate.finalize` is the single completion writer); write-boundary scope
+denial for `Edit`/`Write` + Codex `apply_patch`; `PostToolUse` evidence auto-capture;
+`gate --rerun` earns tier 4 honestly (CommandValidator only claims tier 4 for a tagged
+re-run); Codex version + `/hooks` trust checks in `host doctor codex`; end-to-end
+hook-loop integration tests.
+
 **Open / next:**
+- **First-class MCP tools.** Expose `gate`/`run`/`checkpoint`/`complete` as a stdlib MCP
+  server so both hosts call them as structured tools (and Codex builds predating hooks
+  still work). Hooks force; MCP enables.
 - **Standalone plugin packaging.** The local installer uses symlinks to this checkout.
   Marketplace-copied installs still need a release-time decision: vendor
-  `goalkeeper_core` into `hosts/*`, or ship a bootstrap installer.
-- **Live host validation.** Isolated CLI and hook smoke tests pass, but Goalkeeper has
-  not yet been exercised in a long Claude Code/Codex session with real skill
-  invocation and Stop-hook continuation.
+  `goalkeeper_core` into `hosts/*`, or ship a bootstrap installer. Note: the three
+  `bin/goalkeeper_hook.py` copies (root + `hosts/{claude,codex}/bin/`) are kept
+  byte-identical by hand today — a sync step or vendoring would remove that footgun.
+- **Live host validation.** The in-process hook loop is covered by integration tests,
+  but a long real Claude Code/Codex session with plugin-skill invocation (and, on Codex,
+  the one-time `/hooks` trust) is the remaining unknown.
 - **External validators.** `github_check`/`ticket_state`/`sql_query` are deferred/manual.
   If you wire real execution, do it behind an opt-in env flag and keep the stdlib-only
   default path intact (mirror the `http_check` + `GOALKEEPER_ALLOW_NET` pattern).

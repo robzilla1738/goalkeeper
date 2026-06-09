@@ -37,6 +37,8 @@ def build_auto_contract(objective: str, root: Path, adopt: bool = False) -> dict
     state["completion"]["status"] = "active"
     state["loop"]["mode"] = "goal_until_pass"
     state["loop"]["max_turns"] = 8 if adopt else 12
+    # Auto-generated contracts are active gated work: enforce the Stop gate.
+    state["loop"]["enforce"] = True
     state.setdefault("loop_runtime", {})["auto_generated"] = True
     if adopt:
         state["loop_runtime"]["adopted_existing_diff"] = True
